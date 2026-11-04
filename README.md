@@ -1,23 +1,39 @@
-# Intelligence Feed — ISW
+# Intelligence Feed — Journal géopolitique personnel
 
-Un flux RSS personnel qui retient au maximum cinq analyses majeures de l'Institute for the Study of War par semaine. Le flux ne republie ni articles complets ni cartes : les liens ouvrent les publications ISW originales dans le navigateur intégré de Feeder, pour conserver les images.
+**Objectif : un seul grand article de synthèse hebdomadaire**, original et rédigé en français, construit à partir d'un grand nombre d'analyses géopolitiques (ISW, CSIS, RUSI, ECFR). Le résultat est distribué dans **Feeder** via RSS en contenu intégral, et disponible en HTML sur GitHub Pages.
 
 ## Fonctionnement
 
-1. GitHub Actions vérifie chaque jour les titres et liens directs ISW via la page publique [Feeder ISW](https://feeder.co/discover/fbbae6245c/understandingwar-org) lorsque le site officiel refuse l'accès automatisé (HTTP 403).
-2. L'API OpenAI, avec recherche web, vérifie les candidats avant de sélectionner au maximum un nouvel article par jour et cinq par semaine. Elle peut ne rien retenir si les sources ne suffisent pas.
-3. Le flux RSS est généré dans `docs/feed.xml` et déployé via GitHub Pages. Les sélections des 60 derniers jours restent visibles.
-4. Le weekly éditorial ChatGPT du dimanche est indépendant de cette publication RSS.
+- **Collecte** : le script `sources.py` agrège des publications récentes, datées et dédupliquées, sur sept jours, jusqu'à 100 candidats. Cela ne signifie pas que 100 articles complets ont été lus : ISW bloque notamment la récupération automatique ; pour certains éditeurs, seuls le titre et l'extrait RSS sont disponibles.
+- **Recherche et rédaction** : `weekly.py` transmet les candidats au modèle OpenAI avec recherche web. L'IA compose un **nouvel article de 10–15 minutes** avec un résumé, 4–6 dossiers, enjeux, points à surveiller, références précises et meilleurs articles à consulter. Aucune liste de “1 article sélectionné par jour”.
+- **Publication** : `magazine.py` crée `docs/weekly/YYYY-MM-DD/index.html`, la dernière édition sur `docs/index.html`, un index `docs/editions.json` et un **flux RSS contenant l'article complet** dans `description` et `content:encoded`. Les précédentes éditions sont archivées.
+- **Programmation** : tous les dimanches vers 18h30/19h30 heure de Paris selon l'heure d'été/hiver. L'automatisation ChatGPT du dimanche est séparée et reste active tant que l'utilisateur ne demande pas de l'arrêter.
 
-## Activation
+## Sources
 
-- Dépôt GitHub **public** et GitHub Pages : **Settings → Pages → Build and deployment → GitHub Actions**.
-- Créer un **Repository secret** nommé exactement `OPENAI_API_KEY` dans **Settings → Secrets and variables → Actions**. La clé ne doit jamais figurer dans le code, les logs ni un message ChatGPT ; la facturation API est distincte de ChatGPT.
-- Vérifier l'exécution dans **Actions → Publish curated ISW RSS**. Sans secret fonctionnel, le workflow échouera et ne remplacera pas les articles existants.
-- Lorsque l'exécution de déploiement réussit, ajouter `https://clementhuguet75.github.io/Cl-ment-own-newsletter-/feed.xml` à Feeder et retirer ensuite le flux ISW brut.
+- ISW via la page de découverte Feeder, qui fournit les liens et extraits lorsque ISW bloque GitHub (Cloudflare 403).
+- CSIS Analysis via Feeder.
+- RUSI — flux RSS officiel de publications.
+- ECFR — flux RSS officiel d'articles et de publications.
 
-## État de validation (4 novembre 2026)
+Le workflow s'arrête sans publier de fausse édition s'il manque des sources ou si l'article généré n'est pas correctement structuré.
 
-Le dépôt et les tests locaux du RSS sont validés. Le site ISW renvoie HTTP 403 aux serveurs GitHub ; les liens d'articles ISW publiés dans Feeder sont accessibles depuis GitHub. Les exécutions n'ont **pas encore publié** de flux : la variable secrète `OPENAI_API_KEY` apparaît vide dans l'environnement du workflow. La sélection IA, GitHub Pages et la lecture du flux définitif restent à tester en bout en bout.
+## Cartes et droits
 
-Projet personnel non affilié à ISW ou Feeder.
+**À noter :** la politique ISW de janvier 2026 encadre l'incorporation de ses cartes dans des produits d'analyse tiers et peut requérir une autorisation écrite. Cette version inclut des liens directs vers les rapports contenant les cartes, mais **ne copie pas leurs images dans le journal**. Les cartes intégrées sont une prochaine étape, à partir de sources explicitement réutilisables ou avec permission. Les liens restent consultables directement via le navigateur intégré de Feeder.
+
+## Configuration
+
+- Ajouter `OPENAI_API_KEY` dans les **Repository secrets** GitHub Actions ; l'API est facturée séparément de ChatGPT.
+- GitHub Pages doit utiliser **GitHub Actions** comme méthode de déploiement.
+- Dans Feeder, conserver l'abonnement existant au flux : `https://clementhuguet75.github.io/Cl-ment-own-newsletter-/feed.xml`.
+- Déclenchement manuel possible : GitHub Actions → *Publish weekly intelligence digest* → Run workflow.
+- `docs/last_run.json` donne, après chaque succès, le **nombre réel d'articles candidats** et la ventilation par éditeur. Cela permet de mesurer ce qui a été examiné, sans faire croire à la lecture intégrale de tous les textes.
+
+## Limites
+
+La qualité finale dépend des sources accessibles et de la capacité de recherche web ; les citations indiquent les publications correspondantes, mais les analyses IA ne doivent pas être considérées comme des faits automatiquement confirmés. Aucun article externe n'est recopié en totalité.
+
+**Déploiement de cette version : à valider sur la première exécution du workflow.**
+
+Projet personnel non affilié aux éditeurs ou à Feeder.
