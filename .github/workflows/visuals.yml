@@ -1,0 +1,45 @@
+name: Publish inline maps
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/visuals.yml'
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: intelligence-pages
+  cancel-in-progress: false
+jobs:
+  maps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Render licensed maps inside archived full-text article
+        run: python rebuild_maps.py
+      - name: Save revised journal
+        run: |
+          git config user.name "intelligence-feed-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs
+          if ! git diff --cached --quiet; then
+            git commit -m "Embed licensed context maps in journal"
+            git push origin HEAD:main
+          fi
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: docs
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
