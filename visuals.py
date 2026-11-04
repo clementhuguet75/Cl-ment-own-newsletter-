@@ -33,7 +33,7 @@ MAPS = [
     {
       "key":"taiwan",
       "match":r"\b(ta[iï]wan|détroit de ta[iï]wan|taipei)\b",
-      "src":"https://upload.wikimedia.org/wikipedia/commons/thumb/1/15/LocationTaiwan.svg/960px-LocationTaiwan.svg.png",
+      "src":"https://upload.wikimedia.org/wikipedia/commons/thumb/7/73/LocationTaiwan.svg/1280px-LocationTaiwan.svg.png",
       "title":"Taïwan — situation géographique",
       "caption":"Carte de contexte (2009), sans représentation des opérations militaires ni des changements territoriaux récents.",
       "author":"Keepscases",
