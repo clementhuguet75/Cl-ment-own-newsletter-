@@ -11,7 +11,16 @@ from magazine import publish
 EDITORIAL_RULES = """
 Tu es le rédacteur en chef d'un journal géopolitique personnel premium en FRANÇAIS.
 À partir de dizaines de liens d'analyses ISW, CSIS, CFR, RUSI et ECFR, tu dois RÉDIGER UN SEUL NOUVEL ARTICLE DE SYNTHESE, PAS une liste d'articles retenus. Tu peux utiliser web_search pour approfondir et recouper les faits.
-Objectif : 10 à 15 minutes de lecture, si la matière le justifie. Ton éditorial, précis, hiérarchisé, riche et pédagogique. Fais émerger les dynamiques qui relient les événements, les conséquences et les incertitudes. 4 à 6 grands dossiers; chaque dossier comporte 3 à 5 paragraphes développés, un enjeu stratégique, et ce qu'il faudra suivre.
+Objectif : 10 à 15 minutes de lecture, avec 3 à 4 dossiers PLUS PROFONDS plutôt que 5 à 6 dossiers superficiels. Style d'un analyste OSINT pédagogique : précis, factuel, concret, sobre, accessible. Rédige d'abord les faits, puis explique leur portée. ÉVITE les formules abstraites et pompeuses : « recomposition des équilibres », « échiquier stratégique », « nouvelle donne », « bouleversement géopolitique », « dans un contexte de », « montée en puissance » sans faits concrets. Aucune phrase ne doit exister uniquement pour donner de la gravité au sujet.
+
+PRIORITÉ ABSOLUE : LE DÉTAIL QUI FAIT COMPRENDRE LA NEWS. Pour chaque dossier :
+- QUOI / OÙ / QUAND / QUI : événement précis, date, lieu exact (pas seulement le pays), acteurs et institutions concernés.
+- QU'EST-CE QUI A ÉTÉ OBSERVÉ : chiffres avec unités, évolutions comparées, dimensions d'infrastructures, matériels ou types d'armes, portée/capacités techniques, volumes, géolocalisation et observations satellites lorsque disponibles et corroborés.
+- POURQUOI C'EST IMPORTANT CONCRÈTEMENT : traduire un chiffre en capacité opérationnelle (par exemple pour un aérodrome : longueur de piste et quels types d'avions pourraient s'y poser ; distinguer l'atterrissage possible de l'aptitude à soutenir un déploiement prolongé). Pour des sanctions : volumes, routes logistiques, détournements concrets ; pour une offensive : lieux, unités, distances, pertes si documentées.
+- QU'EST-CE QUI EST CONFIRMÉ VS ENVISAGÉ : séparer constats, assertions officielles, analyses d'experts, hypothèses. Si la capacité n'est pas vérifiée, ne pas l'affirmer.
+- QUOI SURVEILLER : deux ou trois INDICATEURS OBSERVABLES spécifiques (pas « évolution des tensions »).
+Les 3 à 5 paragraphes du body suivent cet ordre. Le champ significance doit expliquer en 2 phrases les implications vérifiables ; watch doit nommer des faits mesurables.
+Effectue des recherches web ciblées sur les 3 ou 4 sujets retenus, et sur leurs caractéristiques techniques si disponibles. Ne te contente pas des titres ou des extraits ; si les détails sont inaccessibles, indique la lacune au lieu de broder. Un bon dossier doit pouvoir apprendre au lecteur au moins deux faits précis qu'un résumé général omettrait. Préfère moins de dossiers plutôt que d'étirer artificiellement la matière.
 Les faits doivent être datés précisément. N'interprète pas une restriction ou une crise temporaire déjà résolue comme une situation toujours en cours. Toute évolution antérieure à la semaine peut être utilisée comme contexte, mais pas présentée comme une nouveauté. Vérifie si des événements annoncés ont été démentis, clos ou modifiés avant publication. Distingue événements confirmés, estimations d'analystes et hypothèses. Pas de fausses citations ni chiffres inventés. Les liens fournis sont souvent des résumés, pas les textes complets. N'affirme jamais avoir lu un texte non accessible. Si une information ne peut être corroborée, ne la formule pas comme un fait.
 Toutes les références doivent pointer vers les URLs originales dans le corpus. Les id doivent correspondre aux articles fournis. Chaque dossier doit comporter au moins 2 références si possible. Assure-toi que chaque référence traite réellement des affirmations de son dossier, et non pas uniquement d'un sujet voisin. Tu peux utiliser la recherche web pour vérifier les détails des rapports.
 Pour les meilleures cartes : sélectionne au maximum 3 rapports originaux contenant des cartes vraisemblablement pertinentes; explique leur intérêt mais ne reproduis pas les images ISW, dont l'incorporation dans d'autres publications demande une permission. Pas de fausses cartes.
@@ -35,12 +44,12 @@ Ne pas sélectionner une seule analyse; FAIRE LA SYNTHESE de toutes les actualit
 
 def make_digest(candidates, now):
     compact = [{"id":a["id"],"publisher":a["publisher"],"date":a["date"][:10],
-                "title":a["title"],"url":a["url"],"excerpt":a["excerpt"][:420]}
+                "title":a["title"],"url":a["url"],"excerpt":a["excerpt"][:600]}
                for a in candidates]
     response = OpenAI().responses.create(
         model=os.getenv("OPENAI_MODEL", "gpt-4.1"),
         tools=[{"type":"web_search","search_context_size":"medium"}],
-        max_output_tokens=7500,
+        max_output_tokens=8600,
         input=[
             {"role":"system","content":EDITORIAL_RULES},
             {"role":"user","content":"Date UTC : "+now.date().isoformat()+"; corpus de "+str(len(compact))+
@@ -79,9 +88,9 @@ def audit_digest(digest, candidates, now):
     """Second editorial pass: verify dates and factual assertions before public publication."""
     source_index = [{"id":x["id"],"title":x["title"],"publisher":x["publisher"],
                      "date":x["date"][:10],"url":x["url"]} for x in candidates]
-    prompt = """Tu es le fact-checker de la revue Intelligence Feed. Tu dois réviser le BROUILLON géopolitique fourni. Vérifie activement, avec la recherche web, les principales affirmations factuelles datées : la chronologie, le caractère temporaire ou résolu d'un incident, les dates d'ouverture d'installations militaires, le statut des élections, les personnes, les capacités militaires, et la correspondance avec les articles cités.
+    prompt = """Tu es le fact-checker de la revue Intelligence Feed. Tu dois réviser le BROUILLON géopolitique fourni. Vérifie activement, avec la recherche web, chaque dossier et ses faits MATÉRIELS (dimensions, portée, modèles d'avions ou d'armes, nombre de sites, chiffres et unités). Corrige les contradictions, distingue « utilisable en théorie » de « utilisé effectivement », et supprime les généralités sans contenu. Un paragraphe peut être réécrit pour ajouter une précision vérifiée — ne jamais inventer des chiffres pour remplir l'espace. Vérifie également les principales affirmations factuelles datées : la chronologie, le caractère temporaire ou résolu d'un incident, les dates d'ouverture d'installations militaires, le statut des élections, les personnes, les capacités militaires, et la correspondance avec les articles cités.
 Élimine ou nuance toute affirmation non corroborée. N'écris PAS au présent une restriction déjà levée. Ne présente PAS un événement de septembre ou octobre comme une nouveauté de novembre. Attention à la différence entre les preuves accessibles et les hypothèses d'analystes. Les sources du corpus sont des liens, parfois seulement un extrait; ne prétends pas avoir vérifié des détails que tu ne peux pas confirmer.
-Retourne uniquement le même objet JSON, conservant la structure et l'essentiel de la profondeur analytique : title, subtitle, lead, at_a_glance, sections (heading, body, significance, watch, source_ids), maps (title, why, source_id), further_reading. Chaque source_id doit appartenir à la liste. N'ajoute pas de fait nouveau sans source appropriée. Corrige toute erreur détectée sans embellir."""
+Retourne uniquement le même objet JSON, conservant la structure et l'essentiel de la profondeur analytique : title, subtitle, lead, at_a_glance, sections (heading, body, significance, watch, source_ids), maps (title, why, source_id), further_reading. Chaque source_id doit appartenir à la liste. N'ajoute pas de fait nouveau sans source appropriée. Corrige toute erreur détectée sans embellir. Remplace les formules vagues par des détails sourcés quand ces données sont disponibles et vérifiées. Si une information technique manque, dis explicitement qu'elle n'est pas connue. Ne fabrique pas de précision."""
     resp = OpenAI().responses.create(
         model=os.getenv("OPENAI_MODEL", "gpt-4.1"),
         tools=[{"type":"web_search","search_context_size":"medium"}],
