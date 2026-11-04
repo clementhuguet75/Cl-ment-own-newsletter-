@@ -1,4 +1,5 @@
 name: Publish weekly intelligence digest
+# Editorial revision: independent factual verification before publication.
 on:
   workflow_dispatch:
   push:
