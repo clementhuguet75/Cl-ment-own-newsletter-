@@ -29,15 +29,30 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Run checks
         run: python -m unittest discover -s tests
+      - name: Check whether API secret is configured
+        id: api_key
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -n "$OPENAI_API_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::OPENAI_API_KEY not configured; skipping publication"
+          fi
       - name: Curate ISW feed
+        if: steps.api_key.outputs.available == 'true'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: gpt-4.1-mini
         run: python curate.py
       - uses: actions/configure-pages@v5
+        if: steps.api_key.outputs.available == 'true'
       - uses: actions/upload-pages-artifact@v4
+        if: steps.api_key.outputs.available == 'true'
         with:
           path: docs
       - name: Deploy GitHub Pages
+        if: steps.api_key.outputs.available == 'true'
         id: deployment
         uses: actions/deploy-pages@v4
