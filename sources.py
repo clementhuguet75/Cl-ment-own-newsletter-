@@ -11,6 +11,7 @@ HEADERS = {"User-Agent": "IntelligenceFeed/1.0 (personal noncommercial research)
 FEEDER = [
     ("ISW", "https://feeder.co/discover/fbbae6245c/understandingwar-org", "understandingwar.org"),
     ("CSIS", "https://feeder.co/discover/da4a7c44f4/csis-org-analysis", "csis.org"),
+    ("CFR", "https://feeder.co/discover/66c126d694/cfr-org", "cfr.org"),
 ]
 RSS = [
     ("RUSI", "https://www.rusi.org/rss/latest-publications.xml", "rusi.org"),
