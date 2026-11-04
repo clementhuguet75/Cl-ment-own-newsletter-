@@ -1,25 +1,23 @@
-name: Publish curated ISW RSS
-# Validate first paid API run and publish the curated feed on push.
+name: Publish weekly intelligence digest
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - 'curate.py'
       - '.github/workflows/curate.yml'
-  workflow_dispatch:
   schedule:
-    - cron: '20 6 * * *'
+    - cron: '30 17 * * 0'
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 concurrency:
-  group: pages
+  group: intelligence-pages
   cancel-in-progress: false
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -29,9 +27,9 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r requirements.txt
-      - name: Run checks
+      - name: Run unit tests
         run: python -m unittest discover -s tests
-      - name: Check whether API secret is configured
+      - name: Check API secret
         id: api_key
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -40,21 +38,27 @@ jobs:
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::OPENAI_API_KEY not configured; skipping publication"
+            echo "::error::OPENAI_API_KEY missing; cannot write the journal"
+            exit 1
           fi
-      - name: Curate ISW feed
-        if: steps.api_key.outputs.available == 'true'
+      - name: Research and write one weekly article
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_MODEL: gpt-4.1-mini
-        run: python curate.py
+          OPENAI_MODEL: gpt-4.1
+        run: python weekly.py
+      - name: Save issue and archive in repository
+        run: |
+          git config user.name "intelligence-feed-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs
+          if ! git diff --cached --quiet; then
+            git commit -m "Publish weekly geopolitical digest"
+            git push origin HEAD:main
+          fi
       - uses: actions/configure-pages@v5
-        if: steps.api_key.outputs.available == 'true'
       - uses: actions/upload-pages-artifact@v4
-        if: steps.api_key.outputs.available == 'true'
         with:
           path: docs
       - name: Deploy GitHub Pages
-        if: steps.api_key.outputs.available == 'true'
         id: deployment
         uses: actions/deploy-pages@v4
