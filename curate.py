@@ -63,7 +63,7 @@ def published_date(soup, title):
             return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
         except (ValueError, TypeError, OverflowError):
             pass
-    m = re.search(r"(?:January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{1,2},\\s+20\\d{2}", title)
+    m = re.search(r"(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+20\d{2}", title)
     if m:
         return dateparse.parse(m.group(0)).replace(tzinfo=timezone.utc)
     return None
@@ -158,7 +158,7 @@ def publish(entries, now):
         ET.SubElement(node,"guid",isPermaLink="true").text = entry["url"]
     DOCS.mkdir(exist_ok=True)
     ET.ElementTree(rss).write(DOCS / "feed.xml",encoding="utf-8",xml_declaration=True)
-    (DOCS / "selected.json").write_text(json.dumps(entries,ensure_ascii=False,indent=2) + "\\n",encoding="utf-8")
+    (DOCS / "selected.json").write_text(json.dumps(entries,ensure_ascii=False,indent=2) + "\n",encoding="utf-8")
 
 
 def main():
