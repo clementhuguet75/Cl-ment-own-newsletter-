@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from email.utils import format_datetime
 from pathlib import Path
 from xml.etree import ElementTree as ET
+from visuals import enrich_article
 
 DOCS = Path(__file__).parent / "docs"
 ROOT_URL = "https://clementhuguet75.github.io/Cl-ment-own-newsletter-"
@@ -53,7 +54,7 @@ def content_html(report, candidates, now):
     c.append('</ul></section>')
     c.append('<div class="method">Ce digest est une synthèse éditoriale originale assistée par IA. Ses analyses et projections sont distinguées des faits documentés. Sources : publications originales créditées dans chaque section. Projet personnel non affilié aux éditeurs cités.</div>')
     c.append("</article>")
-    return "\n".join(c)
+    return enrich_article("\n".join(c))
 
 CSS = """body{background:#f0f2ee;color:#202922;font:17px/1.72 Georgia,serif;margin:0}
 main{max-width:760px;min-height:100vh;margin:auto;background:white;padding:45px 28px 90px;box-sizing:border-box}
@@ -67,7 +68,7 @@ h2{font:700 25px/1.25 system-ui,sans-serif;margin:1.6em 0 .7em}
 .references,.maps,.reading,.method{font:13px/1.6 system-ui,sans-serif;color:#536056}
 .references{margin-top:22px}.references a,.maps a,.reading a{color:#245e40}
 .maps{border-top:1px solid #ddd;margin-top:40px}.map{padding:15px 0;border-bottom:1px solid #eee}
-.map>b{color:#203c2b}.method{margin-top:55px;border-top:1px solid #ddd;padding-top:22px}
+.map>b{color:#203c2b}.visual-map{margin:24px 0 29px;background:#f3f5f1;padding:12px;border-radius:10px}.visual-map img{width:100%;height:auto;display:block}.visual-map figcaption{font:12px/1.5 system-ui,sans-serif;color:#5b6860;margin-top:9px}.method{margin-top:55px;border-top:1px solid #ddd;padding-top:22px}
 @media(max-width:600px){main{padding:20px 18px 60px}h1{font-size:32px}body{font-size:16px}}
 """
 
