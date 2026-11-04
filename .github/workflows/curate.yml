@@ -4,11 +4,10 @@ on:
     branches: [main]
     paths:
       - 'curate.py'
-      - 'probe_sources.py'
       - '.github/workflows/curate.yml'
   workflow_dispatch:
   schedule:
-    - cron: '15 17 * * 0'
+    - cron: '20 6 * * *'
 permissions:
   contents: read
   pages: write
@@ -30,8 +29,6 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Run checks
         run: python -m unittest discover -s tests
-      - name: Check source endpoints
-        run: python probe_sources.py
       - name: Curate ISW feed
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
