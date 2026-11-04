@@ -9,6 +9,18 @@
 - **Publication** : `magazine.py` crée `docs/weekly/YYYY-MM-DD/index.html`, la dernière édition sur `docs/index.html`, un index `docs/editions.json` et un **flux RSS contenant l'article complet** dans `description` et `content:encoded`. Les précédentes éditions sont archivées.
 - **Programmation** : tous les dimanches vers 18h30/19h30 heure de Paris selon l'heure d'été/hiver. L'automatisation ChatGPT du dimanche est séparée et reste active tant que l'utilisateur ne demande pas de l'arrêter.
 
+## Ligne éditoriale — précision avant rhétorique
+
+L'utilisateur veut la précision d'un rapport OSINT, pas les formules générales d'une note stratégique. Chaque dossier doit expliquer :
+
+- **Fait exact** : qui, quoi, où, quand, et source du constat ; les événements antérieurs sont clairement datés.
+- **Détails matériels** : dimensions, distances, effectifs, équipements, modèles d'avions, armements, infrastructures, mesures satellitaires et chiffres pertinents lorsque les sources permettent de les vérifier.
+- **Signification opérationnelle** : ce que l'équipement ou la localisation permet réellement, avec les limitations (ex. une piste peut accueillir un avion sans pouvoir soutenir des opérations prolongées).
+- **Incertitude** : distinguer observation, déclaration officielle, extrapolation technique et hypothèse.
+- **Points de suivi** : indices précis à surveiller, plutôt que des phrases comme « suivre l'évolution des tensions ».
+
+**Style** : concret, pédagogique, sobre, sans expressions creuses (« rééquilibrage géostratégique », « nouvel échiquier », « nouvelle ère ») si elles ne sont pas étayées. Préférer **3–4 développements documentés** à 6 panoramas génériques. La recherche doit approfondir activement les sujets sélectionnés ; le corpus RSS initial ne garantit pas l'accès intégral aux publications.
+
 ## Sources
 
 - ISW via la page de découverte Feeder, qui fournit les liens et extraits lorsque ISW bloque GitHub (Cloudflare 403).
