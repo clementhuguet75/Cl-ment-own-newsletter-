@@ -1,5 +1,5 @@
 name: Publish curated ISW RSS
-# Recheck the API secret and publish the feed on push.
+# Validate first paid API run and publish the curated feed on push.
 on:
   push:
     branches: [main]
