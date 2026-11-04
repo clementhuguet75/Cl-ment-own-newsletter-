@@ -1,22 +1,23 @@
 # Intelligence Feed — ISW
 
-Un flux RSS personnel de 3 à 5 publications ISW sélectionnées par IA chaque semaine. Les entrées du flux pointent vers les articles officiels, pour conserver leurs cartes et illustrations dans le navigateur intégré de Feeder.
-
-## Mise en service
-
-1. Publier le dépôt via GitHub Pages (pour un compte GitHub Free, le dépôt doit être public ; pour certains forfaits payants, un dépôt privé est éligible).
-2. Créer un secret GitHub Actions nommé `OPENAI_API_KEY` (ne jamais ajouter la clé dans un fichier ni dans ce chat).
-3. Dans Settings → Pages → Build and deployment, sélectionner GitHub Actions.
-4. Déclencher Actions → Publish curated ISW RSS → Run workflow, puis tester la page `/feed.xml`.
-5. Dans Feeder, suivre l'URL publiée et se désabonner de l'ancien flux brut ISW lorsque tout marche.
+Un flux RSS personnel qui retient au maximum cinq analyses majeures de l'Institute for the Study of War par semaine. Le flux ne republie ni articles complets ni cartes : les liens ouvrent les publications ISW originales dans le navigateur intégré de Feeder, pour conserver les images.
 
 ## Fonctionnement
 
-- Le workflow s'exécute chaque dimanche, collecte les analyses de la semaine, sélectionne jusqu'à cinq contenus majeurs, génère `docs/feed.xml`, puis déploie ce répertoire sur GitHub Pages.
-- Les articles et cartes restent hébergés par ISW ; l'item RSS contient le titre, le lien original et un commentaire court en français.
-- Une semaine avec peu d'actualité peut comporter moins de trois articles.
-- Le traitement IA via l'API OpenAI est facturé séparément de ChatGPT.
+1. GitHub Actions vérifie chaque jour les titres et liens directs ISW via la page publique [Feeder ISW](https://feeder.co/discover/fbbae6245c/understandingwar-org) lorsque le site officiel refuse l'accès automatisé (HTTP 403).
+2. L'API OpenAI, avec recherche web, vérifie les candidats avant de sélectionner au maximum un nouvel article par jour et cinq par semaine. Elle peut ne rien retenir si les sources ne suffisent pas.
+3. Le flux RSS est généré dans `docs/feed.xml` et déployé via GitHub Pages. Les sélections des 60 derniers jours restent visibles.
+4. Le weekly éditorial ChatGPT du dimanche est indépendant de cette publication RSS.
 
-## État
+## Activation
 
-Le dépôt contient un prototype à valider de bout en bout (l'accès web depuis le workflow, l'extraction des contenus, la clé API et la publication). Le flux initial est volontairement vide, sans faux articles.
+- Dépôt GitHub **public** et GitHub Pages : **Settings → Pages → Build and deployment → GitHub Actions**.
+- Créer un **Repository secret** nommé exactement `OPENAI_API_KEY` dans **Settings → Secrets and variables → Actions**. La clé ne doit jamais figurer dans le code, les logs ni un message ChatGPT ; la facturation API est distincte de ChatGPT.
+- Vérifier l'exécution dans **Actions → Publish curated ISW RSS**. Sans secret fonctionnel, le workflow échouera et ne remplacera pas les articles existants.
+- Lorsque l'exécution de déploiement réussit, ajouter `https://clementhuguet75.github.io/Cl-ment-own-newsletter-/feed.xml` à Feeder et retirer ensuite le flux ISW brut.
+
+## État de validation (4 novembre 2026)
+
+Le dépôt et les tests locaux du RSS sont validés. Le site ISW renvoie HTTP 403 aux serveurs GitHub ; les liens d'articles ISW publiés dans Feeder sont accessibles depuis GitHub. Les exécutions n'ont **pas encore publié** de flux : la variable secrète `OPENAI_API_KEY` apparaît vide dans l'environnement du workflow. La sélection IA, GitHub Pages et la lecture du flux définitif restent à tester en bout en bout.
+
+Projet personnel non affilié à ISW ou Feeder.
