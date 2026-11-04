@@ -131,7 +131,7 @@ Réponse exclusivement en JSON {"selected":[{"id":0,"why_fr":"Une ou deux phrase
         tools=[{"type":"web_search","search_context_size":"medium"}],
         input=[{"role":"system","content":prompt},{"role":"user","content":json.dumps(candidates,ensure_ascii=False)}])
     raw = (answer.output_text or "").strip()
-    found = re.search(r"\\{[\\s\\S]*\\}", raw)
+    found = re.search(r"\{.*\}", raw, re.S)
     if not found:
         raise RuntimeError("AI response was not valid JSON; keeping previously published feed")
     data = json.loads(found.group(0))
