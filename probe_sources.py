@@ -16,6 +16,9 @@ for name,url in urls.items():
   soup=BeautifulSoup(resp.text,"html.parser")
   isw_links=[(a.get_text(" ",strip=True)[:80],a.get("href")) for a in soup.select("a[href]") if ("understandingwar.org/research/" in a.get("href","") or "/research/" in a.get("href",""))]
   print(name,resp.status_code,resp.url[:120],"bytes",len(resp.content),"ISW LINKS",len(isw_links),isw_links[:3])
+  if name=="Feeder":
+   for a in [a for a in soup.select("a[href]") if "understandingwar.org/research/" in a.get("href","")][:3]:
+    print("FEEDER ANCESTOR:", str(a.parent.parent)[:1250])
   print("Preview", " ".join(soup.get_text(" ",strip=True).split())[:130])
  except requests.RequestException as exc:
   print(name,type(exc).__name__,str(exc)[:130])
