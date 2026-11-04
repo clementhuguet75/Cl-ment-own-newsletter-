@@ -38,23 +38,30 @@ def fetch(url):
 def discover():
     out = {}
     errors = []
-    # ISW may restrict access to its research listing. The homepage also lists
-    # recent articles and is a useful fallback, rather than publishing junk.
-    for listing in (BASE + "/research/", BASE + "/"):
+    # ISW rejects requests from some hosted servers (Cloudflare 403).
+    # Feeder publicly lists direct original links and short metadata snippets.
+    for listing in (BASE + "/research/", BASE + "/", "https://feeder.co/discover/fbbae6245c/understandingwar-org"):
         try:
             soup = fetch(listing)
         except requests.RequestException as exc:
             errors.append(str(exc)[:150])
             continue
-        for a in soup.select("a[href]"):
+        links = soup.select("a.discover-feed-item-link[href]") if "feeder.co" in listing else soup.select("a[href]")
+        for a in links:
             url = article_url(a["href"])
             title = " ".join(a.get_text(" ", strip=True).split())
-            if url and len(title) >= 14 and title.lower() not in ("read more", "view more"):
-                out[url] = {"title": title[:200], "url": url}
+            if not url or len(title) < 14 or title.lower() in ("read more", "view more"):
+                continue
+            meta = ""
+            if "feeder.co" in listing:
+                container = a.find_parent("div", class_="flex-grow-1")
+                desc = container.select_one("p.card-text") if container else None
+                meta = desc.get_text(" ", strip=True)[:500] if desc else ""
+            if url not in out:
+                out[url] = {"title": title[:200], "url": url, "summary": meta}
     if not out:
         raise RuntimeError("No ISW article links discovered. Listing errors: " + " | ".join(errors))
     return list(out.values())[:45]
-
 
 def published_date(soup, title):
     for attrs in ({"property":"article:published_time"},{"name":"date"},{"name":"datePublished"},{"itemprop":"datePublished"}):
@@ -79,38 +86,55 @@ def published_date(soup, title):
 
 def gather(now):
     items = []
+    blocked = False
     for entry in discover()[:35]:
-        try:
-            soup = fetch(entry["url"])
-            title = soup.h1.get_text(" ", strip=True) if soup.h1 else entry["title"]
-            dt = published_date(soup, title) or published_date(soup, entry["title"])
-            if not dt or not now - timedelta(days=7) <= dt <= now + timedelta(days=1):
-                continue
-            area = soup.find("main") or soup.find("article") or soup.body
-            if not area:
-                continue
-            for node in area.select("script,style,nav,footer,header,form"):
-                node.decompose()
-            text = " ".join(area.get_text(" ", strip=True).split())[:4500]
-            items.append({"title":title[:200], "url":entry["url"], "date":dt.isoformat(), "text":text})
-        except (requests.RequestException, ValueError) as exc:
-            print("Skipping ISW page:", entry["url"], str(exc)[:100])
+        # Published date must be verifiable; never fabricate publication dates.
+        title = entry["title"]
+        dt = published_date(BeautifulSoup("", "html.parser"), title)
+        text = entry.get("summary", "")
+        if not dt or not now - timedelta(days=7) <= dt <= now + timedelta(days=1):
+            continue
+        if not blocked:
+            try:
+                soup = fetch(entry["url"])
+                title = soup.h1.get_text(" ", strip=True) if soup.h1 else title
+                dt = published_date(soup, title) or dt
+                area = soup.find("main") or soup.find("article") or soup.body
+                if area:
+                    for node in area.select("script,style,nav,footer,header,form"):
+                        node.decompose()
+                    text = " ".join(area.get_text(" ", strip=True).split())[:4500]
+            except requests.HTTPError as exc:
+                if exc.response is not None and exc.response.status_code in (403, 429):
+                    blocked = True
+                print("Article retrieval restricted; using indexed metadata only:", str(exc)[:100])
+            except requests.RequestException as exc:
+                print("Article temporarily unavailable; using indexed metadata:", str(exc)[:100])
+        items.append({"title":title[:200], "url":entry["url"], "date":dt.isoformat(), "text":text})
     if not items:
-        raise RuntimeError("No recent dated ISW articles verified. Existing published feed remains unchanged.")
+        raise RuntimeError("No recent dated ISW articles verified; preserving existing feed")
     return items
 
-
-def select(items):
+def select(items, max_new=1):
     from openai import OpenAI
     if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("Missing OPENAI_API_KEY secret; will not publish uncurated articles")
-    prompt = """Tu sélectionnes uniquement les 3 à 5 articles ISW les plus intéressants de la semaine (moins si aucune nouveauté majeure). Critères : changements stratégiques significatifs, cartes vraiment nouvelles, analyse de fond, conséquences géopolitiques. Exclure les répétitions et mises à jour de routine. Ne pas inventer de faits. Réponds uniquement en JSON : {"selected":[{"id":0,"why_fr":"2 phrases originales en français"}]}. Les id doivent provenir des articles transmis."""
-    candidates = [{"id":i,"title":x["title"],"date":x["date"],"text":x["text"]} for i,x in enumerate(items)]
-    result = OpenAI().chat.completions.create(
-        model=os.getenv("OPENAI_MODEL","gpt-4.1-mini"), temperature=0.2,
-        response_format={"type":"json_object"},
-        messages=[{"role":"system","content":prompt},{"role":"user","content":json.dumps(candidates,ensure_ascii=False)}])
-    data = json.loads(result.choices[0].message.content or "{}")
+        raise RuntimeError("OPENAI_API_KEY is not available to this workflow. Verify the repository Actions secret name.")
+    # Source site may return 403 from GitHub. A web-grounded model must research
+    # the actual content, not infer importance from generic article titles.
+    prompt = """Tu es un rédacteur en chef spécialisé en géopolitique. Examine les liens ISW fournis et recherche sur le web les faits saillants de ces rapports lorsqu'ils sont disponibles.
+Sélectionne uniquement les analyses apportant une évolution MAJEURE, une carte nouvelle significative, ou une analyse stratégique de fond.
+Ne publie pas une analyse juste parce qu'elle a été publiée. Si les rapports ne sont pas suffisamment vérifiables, ne sélectionne rien.
+Réponse exclusivement en JSON {"selected":[{"id":0,"why_fr":"Une ou deux phrases factuelles, fiables et originales en français"}]}. Utilise seulement les id fournis. Maximum un contenu sélectionné pour cette édition quotidienne. Évite les généralisations, détails invérifiables et doublons."""
+    candidates = [{"id":i,"title":x["title"],"date":x["date"],"url":x["url"],"summary":x["text"][:750]} for i,x in enumerate(items)]
+    answer = OpenAI().responses.create(
+        model=os.getenv("OPENAI_MODEL","gpt-4.1-mini"),
+        tools=[{"type":"web_search","search_context_size":"medium"}],
+        input=[{"role":"system","content":prompt},{"role":"user","content":json.dumps(candidates,ensure_ascii=False)}])
+    raw = (answer.output_text or "").strip()
+    found = re.search(r"\\{[\\s\\S]*\\}", raw)
+    if not found:
+        raise RuntimeError("AI response was not valid JSON; keeping previously published feed")
+    data = json.loads(found.group(0))
     selected, seen = [], set()
     for row in data.get("selected", []):
         try:
@@ -122,12 +146,9 @@ def select(items):
             continue
         seen.add(idx)
         selected.append({k:items[idx][k] for k in ("title","url","date")} | {"why_fr":note[:500]})
-        if len(selected) == 5:
+        if len(selected) == max_new:
             break
-    if not selected:
-        raise RuntimeError("No usable AI selection; existing feed remains untouched")
     return selected
-
 
 def old_entries():
     repo = os.getenv("GITHUB_REPOSITORY","")
@@ -171,20 +192,21 @@ def publish(entries, now):
 
 def main():
     now = datetime.now(timezone.utc)
-    current = select(gather(now))
-    seen = {x["url"] for x in current}
-    for entry in old_entries():
-        try:
-            dt = datetime.fromisoformat(entry["date"])
-            if entry["url"] not in seen and now - timedelta(days=60) <= dt <= now:
-                current.append(entry)
-                seen.add(entry["url"])
-        except (KeyError, ValueError):
-            continue
+    old = old_entries()
+    # Feed is populated gradually through the week: at most 5 each ISO week.
+    week = now.isocalendar()[:2]
+    used = sum(1 for x in old if datetime.fromisoformat(x["date"]).isocalendar()[:2] == week)
+    existing_urls = {x["url"] for x in old}
+    slots = max(0, 5 - used)
+    fresh = []
+    if slots:
+        fresh = [x for x in gather(now) if x["url"] not in existing_urls]
+    new = select(fresh, max_new=1) if fresh and slots else []
+    current = new + [x for x in old if now - timedelta(days=60) <= datetime.fromisoformat(x["date"]) <= now]
+    # Publishing 0 articles is legitimate; never insert filler or demo items.
     current.sort(key=lambda x:x["date"],reverse=True)
     publish(current,now)
-    print("Published",len(current),"items")
-
+    print("Published",len(current),"articles; added",len(new),"new articles")
 
 if __name__ == "__main__":
     main()
