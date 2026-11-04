@@ -36,15 +36,23 @@ def fetch(url):
 
 
 def discover():
-    soup = fetch(BASE + "/research/")
     out = {}
-    for a in soup.select("a[href]"):
-        url = article_url(a["href"])
-        title = " ".join(a.get_text(" ", strip=True).split())
-        if url and len(title) >= 14 and title.lower() not in ("read more", "view more"):
-            out[url] = {"title": title[:200], "url": url}
+    errors = []
+    # ISW may restrict access to its research listing. The homepage also lists
+    # recent articles and is a useful fallback, rather than publishing junk.
+    for listing in (BASE + "/research/", BASE + "/"):
+        try:
+            soup = fetch(listing)
+        except requests.RequestException as exc:
+            errors.append(str(exc)[:150])
+            continue
+        for a in soup.select("a[href]"):
+            url = article_url(a["href"])
+            title = " ".join(a.get_text(" ", strip=True).split())
+            if url and len(title) >= 14 and title.lower() not in ("read more", "view more"):
+                out[url] = {"title": title[:200], "url": url}
     if not out:
-        raise RuntimeError("ISW research listing returned no articles; no new feed will be published")
+        raise RuntimeError("No ISW article links discovered. Listing errors: " + " | ".join(errors))
     return list(out.values())[:45]
 
 
