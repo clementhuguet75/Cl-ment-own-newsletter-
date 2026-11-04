@@ -1,5 +1,5 @@
 name: Publish weekly intelligence digest
-# Editorial revision: independent factual verification before publication.
+# Editorial revision: prioritize concrete OSINT details and technical explanations.
 on:
   workflow_dispatch:
   push:
