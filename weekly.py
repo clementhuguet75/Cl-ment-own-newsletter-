@@ -74,11 +74,55 @@ def make_digest(candidates, now):
             raise RuntimeError("Invalid further reading source")
     return digest
 
+
+def audit_digest(digest, candidates, now):
+    """Second editorial pass: verify dates and factual assertions before public publication."""
+    source_index = [{"id":x["id"],"title":x["title"],"publisher":x["publisher"],
+                     "date":x["date"][:10],"url":x["url"]} for x in candidates]
+    prompt = """Tu es le fact-checker de la revue Intelligence Feed. Tu dois réviser le BROUILLON géopolitique fourni. Vérifie activement, avec la recherche web, les principales affirmations factuelles datées : la chronologie, le caractère temporaire ou résolu d'un incident, les dates d'ouverture d'installations militaires, le statut des élections, les personnes, les capacités militaires, et la correspondance avec les articles cités.
+Élimine ou nuance toute affirmation non corroborée. N'écris PAS au présent une restriction déjà levée. Ne présente PAS un événement de septembre ou octobre comme une nouveauté de novembre. Attention à la différence entre les preuves accessibles et les hypothèses d'analystes. Les sources du corpus sont des liens, parfois seulement un extrait; ne prétends pas avoir vérifié des détails que tu ne peux pas confirmer.
+Retourne uniquement le même objet JSON, conservant la structure et l'essentiel de la profondeur analytique : title, subtitle, lead, at_a_glance, sections (heading, body, significance, watch, source_ids), maps (title, why, source_id), further_reading. Chaque source_id doit appartenir à la liste. N'ajoute pas de fait nouveau sans source appropriée. Corrige toute erreur détectée sans embellir."""
+    resp = OpenAI().responses.create(
+        model=os.getenv("OPENAI_MODEL", "gpt-4.1"),
+        tools=[{"type":"web_search","search_context_size":"medium"}],
+        max_output_tokens=7500,
+        input=[
+            {"role":"system","content":prompt},
+            {"role":"user","content":"Date : "+now.date().isoformat()+"\nSOURCES DISPONIBLES : "+
+             json.dumps(source_index,ensure_ascii=False)+
+             "\nARTICLE A AUDITER : "+json.dumps(digest,ensure_ascii=False)}
+        ])
+    print("Fact check usage:",resp.usage)
+    raw=(resp.output_text or "").strip()
+    try:
+        audited=json.loads(raw)
+    except json.JSONDecodeError:
+        match=re.search(r"\{.*\}",raw,re.S)
+        if not match:
+            raise RuntimeError("Fact-check did not return valid JSON; preserving previous issue")
+        audited=json.loads(match.group())
+    allowed={x["id"] for x in candidates}
+    sections=audited.get("sections",[])
+    if len(sections)<3:
+        raise RuntimeError("Fact check produced too few sections")
+    for section in sections:
+        references=section.get("source_ids",[])
+        if not isinstance(references,list) or not references or any(i not in allowed for i in references):
+            raise RuntimeError("Fact-check returned invalid references")
+        if not section.get("body"):
+            raise RuntimeError("Fact check returned an empty section")
+    for item in audited.get("maps",[]):
+        if item.get("source_id") not in allowed:
+            raise RuntimeError("Fact check returned a map with an invalid source")
+    return audited
+
+
 def main():
     now = datetime.now(timezone.utc)
     candidates = collect(now)
     report = make_digest(candidates,now)
-    publish(report,candidates,now)
+    checked = audit_digest(report,candidates,now)
+    publish(checked,candidates,now)
 
 if __name__ == "__main__":
     main()
