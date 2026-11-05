@@ -24,7 +24,7 @@ def sample():
                      "Les équipements logistiques restent à documenter."],
       "sections":[
         {"heading":f"Les capacités de la base numéro {n}",
-         "body":[P,P],"significance":"Une base ne devient opérationnelle sans les moyens de soutien.",
+         "body":[P+P,P+P],"significance":"Une base ne devient opérationnelle sans les moyens de soutien.",
          "watch":"Contrôler les hangars, dépôts de carburant et annonces d'accès.",
          "source_ids":[n]} for n in (0,1)],
       "maps":[{"title":"Carte originale de contexte","why":"Une localisation géographique","source_id":0}],
