@@ -19,6 +19,8 @@ L'utilisateur veut la précision d'un rapport OSINT, pas les formules générale
 - **Incertitude** : distinguer observation, déclaration officielle, extrapolation technique et hypothèse.
 - **Points de suivi** : indices précis à surveiller, plutôt que des phrases comme « suivre l'évolution des tensions ».
 
+**Micro → Macro (« So what ? »)** : chaque sujet doit relier l'événement concret à une dynamique plus large, étayée par le contexte historique et géographique : quels objectifs existaient avant, quel mécanisme permet réellement à cet événement d'agir, quels acteurs y gagnent ou perdent, quelle différence par rapport à l'existant ? Mettre en regard une interprétation stratégique et une lecture qui en relativise la portée si les faits le justifient. Donner des éléments de comparaison concrets (ex. bases voisines, autres infrastructures, droits militaires, capacités effectivement déployées). Si l'effet est négligeable, le dire. Ne jamais transformer un scénario futur en fait acquis.
+
 **Style** : concret, pédagogique, sobre, sans expressions creuses (« rééquilibrage géostratégique », « nouvel échiquier », « nouvelle ère ») si elles ne sont pas étayées. Préférer **3–4 développements documentés** à 6 panoramas génériques. La recherche doit approfondir activement les sujets sélectionnés ; le corpus RSS initial ne garantit pas l'accès intégral aux publications.
 
 ## Sources
