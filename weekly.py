@@ -84,103 +84,94 @@ Format de sortie : JSON valide uniquement, sans markdown. Schéma :
 Ne pas sélectionner une seule analyse; FAIRE LA SYNTHESE de toutes les actualités matérielles pertinentes. Ignorer les publications de routine. Placer une référence par dossier, pas des références fabriquées. Les sources qui ne sont pas utiles n'ont pas besoin d'être citées.
 """
 
-def make_digest(candidates, now):
-    compact = [{"id":a["id"],"publisher":a["publisher"],"date":a["date"][:10],
-                "title":a["title"],"url":a["url"],"excerpt":a["excerpt"][:600]}
-               for a in candidates]
+def compact_candidates(candidates):
+    return [{"id":a["id"],"publisher":a["publisher"],"date":a["date"][:10],
+             "title":a["title"],"url":a["url"],"excerpt":a["excerpt"][:600]} for a in candidates]
+
+def web_research(candidates, now):
+    """Search the important facts BEFORE asking for long structured writing."""
+    prompt = """Réalise une recherche documentaire OSINT pour un digest géopolitique du jour.
+Lis la liste de publications récentes, hiérarchise 3 sujets importants et concrets, puis effectue des recherches web ciblées pour recouper les faits et détails techniques. Réponds EN NOTES FACTUELLES, pas en article, pas en JSON.
+Pour chaque sujet : date et lieu exacts, 5 à 8 faits sourcés (avec les id des articles de la liste), données physiques/quantitatives vérifiées (longueurs de pistes, types d'avion, lieux, distances, capacités, effectifs, etc.), portée opérationnelle et limites. Aucune invention. Ce qui n'est pas confirmé doit être marqué non confirmé. Sépare les nouveautés des faits anciens utilisés comme contexte.
+Ne mentionne que les numéros d'articles de la liste fournie. Si une information décisive manque, dis-le clairement. Ne produis PAS de phrases creuses. Maximum 1 800 mots de notes."""
     response = OpenAI().responses.create(
-        model=os.getenv("OPENAI_MODEL", "gpt-4.1"),
+        model=os.getenv("OPENAI_MODEL","gpt-4.1"),
         tools=[{"type":"web_search","search_context_size":"medium"}],
+        max_output_tokens=4800,
+        input=[{"role":"system","content":prompt},
+               {"role":"user","content":"Date UTC "+now.date().isoformat()+"; candidats : "+
+                json.dumps(compact_candidates(candidates),ensure_ascii=False)}])
+    print("Research usage:", response.usage)
+    notes=(response.output_text or "").strip()
+    if len(notes)<300:
+        raise RuntimeError("Not enough grounded research notes for publication")
+    return notes[:18000]
+
+def structured_digest(instructions, user_text, output_limit=8000):
+    """Constrained output without web tools, avoiding web+schema token exhaustion."""
+    response = OpenAI().responses.create(
+        model=os.getenv("OPENAI_MODEL","gpt-4.1"),
         text={"format":{"type":"json_schema","name":"geopolitical_digest","strict":True,"schema":DIGEST_SCHEMA}},
-        parallel_tool_calls=False,
-        max_output_tokens=14500,
-        input=[
-            {"role":"system","content":EDITORIAL_RULES},
-            {"role":"user","content":"Date UTC : "+now.date().isoformat()+"; corpus de "+str(len(compact))+
-             " publications des 7 derniers jours :\n"+json.dumps(compact,ensure_ascii=False)}
-        ])
-    print("Usage:", response.usage)
-    if response.status != "completed":
-        raise RuntimeError("Draft response incomplete: " + str(response.status))
-    raw = (response.output_text or "").strip()
-    if raw.startswith("~~~"):
-        raw = re.sub(r"^~~~(?:json)?\s*|\s*~~~$", "", raw, flags=re.I)
-    try:
-        digest = json.loads(raw)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}",raw,re.S)
-        if not match:
-            raise RuntimeError("Model did not return a JSON digest")
-        digest=json.loads(match.group())
-    if not isinstance(digest,dict) or len(digest.get("sections",[])) < 3:
-        raise RuntimeError("Digest too short: preserving previous edition")
-    allowed = {a["id"] for a in candidates}
-    for section in digest["sections"]:
-        refs = section.get("source_ids",[])
-        if not isinstance(refs,list) or not refs or any(i not in allowed for i in refs):
-            raise RuntimeError("Some editorial references do not match verified candidate articles")
-        if not section.get("body"):
-            raise RuntimeError("Empty analysis section")
-    for card in digest.get("maps",[]):
-        if card.get("source_id") not in allowed:
-            raise RuntimeError("Invalid map source")
-    for i in digest.get("further_reading",[]):
-        if i not in allowed:
-            raise RuntimeError("Invalid further reading source")
-    return digest
+        max_output_tokens=output_limit,
+        input=[{"role":"system","content":instructions},{"role":"user","content":user_text}])
+    print("Structured output usage:", response.usage)
+    if response.status!="completed":
+        raise RuntimeError("Structured output was incomplete; previous issue preserved")
+    return json.loads(response.output_text)
 
+def make_digest(candidates, now):
+    notes=web_research(candidates,now)
+    user_text=("Date : "+now.date().isoformat()+
+        "\nNOTES D'ENQUÊTE WEB, À UTILISER COMME SEUL FONDEMENT DES FAITS :\n"+notes+
+        "\nINDEX DES SOURCES ET ID AUTORISÉS :\n"+json.dumps(compact_candidates(candidates),ensure_ascii=False)+
+        "\nCompose exactement 3 dossiers, 3 paragraphes factuels de 90-120 mots chacun, un chapô, cinq phrases d'essentiel, 1-3 cartes SOURCÉES et 3 lectures. Maximum 1600 mots. Ne force aucun détail que les recherches n'étayent pas. Évite les généralités. Sortie JSON valide et COMPLÈTE.")
+    draft=structured_digest(EDITORIAL_RULES,user_text)
+    return draft,notes
 
-def audit_digest(digest, candidates, now):
-    """Second editorial pass: verify dates and factual assertions before public publication."""
-    source_index = [{"id":x["id"],"title":x["title"],"publisher":x["publisher"],
-                     "date":x["date"][:10],"url":x["url"]} for x in candidates]
-    prompt = """Tu es le fact-checker de la revue Intelligence Feed. Tu dois réviser le BROUILLON géopolitique fourni. Vérifie activement, avec la recherche web, chaque dossier et ses faits MATÉRIELS (dimensions, portée, modèles d'avions ou d'armes, nombre de sites, chiffres et unités). Corrige les contradictions, distingue « utilisable en théorie » de « utilisé effectivement », et supprime les généralités sans contenu. Un paragraphe peut être réécrit pour ajouter une précision vérifiée — ne jamais inventer des chiffres pour remplir l'espace. Vérifie également les principales affirmations factuelles datées : la chronologie, le caractère temporaire ou résolu d'un incident, les dates d'ouverture d'installations militaires, le statut des élections, les personnes, les capacités militaires, et la correspondance avec les articles cités.
-Élimine ou nuance toute affirmation non corroborée. N'écris PAS au présent une restriction déjà levée. Ne présente PAS un événement de septembre ou octobre comme une nouveauté de novembre. Attention à la différence entre les preuves accessibles et les hypothèses d'analystes. Les sources du corpus sont des liens, parfois seulement un extrait; ne prétends pas avoir vérifié des détails que tu ne peux pas confirmer.
-Retourne uniquement le même objet JSON, en conservant 3 à 4 sections et au maximum 1 900 mots dans l'ensemble de l'article, avec la structure et l'essentiel de la profondeur analytique : title, subtitle, lead, at_a_glance, sections (heading, body, significance, watch, source_ids), maps (title, why, source_id), further_reading. Chaque source_id doit appartenir à la liste. N'ajoute pas de fait nouveau sans source appropriée. Corrige toute erreur détectée sans embellir. Remplace les formules vagues par des détails sourcés quand ces données sont disponibles et vérifiées. Si une information technique manque, dis explicitement qu'elle n'est pas connue. Ne fabrique pas de précision."""
-    resp = OpenAI().responses.create(
-        model=os.getenv("OPENAI_MODEL", "gpt-4.1"),
+def audit_digest(digest, candidates, now, research_notes):
+    """Independently check claims, then revise in bounded, tool-free JSON."""
+    index=[{"id":x["id"],"title":x["title"],"publisher":x["publisher"],
+            "date":x["date"][:10],"url":x["url"]} for x in candidates]
+    claims=json.dumps(digest,ensure_ascii=False)
+    check=OpenAI().responses.create(
+        model=os.getenv("OPENAI_MODEL","gpt-4.1"),
         tools=[{"type":"web_search","search_context_size":"medium"}],
-        text={"format":{"type":"json_schema","name":"geopolitical_digest","strict":True,"schema":DIGEST_SCHEMA}},
-        parallel_tool_calls=False,
-        max_output_tokens=7500,
+        max_output_tokens=2500,
         input=[
-            {"role":"system","content":prompt},
-            {"role":"user","content":"Date : "+now.date().isoformat()+"\nSOURCES DISPONIBLES : "+
-             json.dumps(source_index,ensure_ascii=False)+
-             "\nARTICLE A AUDITER : "+json.dumps(digest,ensure_ascii=False)}
+            {"role":"system","content":"""Vérificateur factuel géopolitique. En utilisant la recherche web, contrôle les affirmations matérielles et temporelles de l'article : dates, élections, acteurs, longueur des pistes, types d'avions, usage réel vs possibilité théorique, chiffres et statut résolu ou actif. Réponds en NOTES DE CORRECTION COURTES, pas en JSON ni article. Si tu ne peux pas prouver un détail, indique précisément le passage à nuancer ou supprimer. N'ajoute pas d'événements non pertinents. Maximum 850 mots."""},
+            {"role":"user","content":"Date "+now.date().isoformat()+"\nBROUILLON : "+claims}
         ])
-    print("Fact check usage:",resp.usage)
-    if resp.status != "completed":
-        raise RuntimeError("Fact-check response incomplete: " + str(resp.status))
-    raw=(resp.output_text or "").strip()
-    try:
-        audited=json.loads(raw)
-    except json.JSONDecodeError:
-        match=re.search(r"\{.*\}",raw,re.S)
-        if not match:
-            raise RuntimeError("Fact-check did not return valid JSON; preserving previous issue")
-        audited=json.loads(match.group())
+    print("Fact check web usage:",check.usage)
+    findings=(check.output_text or "").strip()
+    if len(findings)<80:
+        raise RuntimeError("Fact checking yielded insufficient evidence; previous edition preserved")
+    instructions="""Tu es le réviseur final d'un digest géopolitique français. Corrige le brouillon uniquement selon les constats d'audit vérifiés. Garde la profondeur technique et la structure JSON. Enlève toute information douteuse, remplace les adjectifs vagues par faits réellement justifiés, et distingue toujours passé et présent. Maximum 1600 mots pour l'article total. Tu peux raccourcir, pas inventer. Toutes les sources sont des id entiers existants. N'ajoute ni publication ni précision absente des notes d'enquête et de vérification."""
+    final=structured_digest(instructions, "INDEX DES ARTICLES : "+json.dumps(index,ensure_ascii=False)+
+              "\nNOTES INITIALES : "+research_notes[:12000]+
+              "\nNOTES D'AUDIT WEB : "+findings+
+              "\nBROUILLON À CORRIGER : "+claims)
     allowed={x["id"] for x in candidates}
-    sections=audited.get("sections",[])
-    if len(sections)<3:
-        raise RuntimeError("Fact check produced too few sections")
-    for section in sections:
-        references=section.get("source_ids",[])
-        if not isinstance(references,list) or not references or any(i not in allowed for i in references):
-            raise RuntimeError("Fact-check returned invalid references")
-        if not section.get("body"):
-            raise RuntimeError("Fact check returned an empty section")
-    for item in audited.get("maps",[]):
-        if item.get("source_id") not in allowed:
-            raise RuntimeError("Fact check returned a map with an invalid source")
-    return audited
+    sections=final.get("sections",[])
+    if len(sections)<3 or len(sections)>5:
+        raise RuntimeError("Incorrect number of audited sections")
+    for sec in sections:
+        ids=sec.get("source_ids",[])
+        if not ids or any(i not in allowed for i in ids):
+            raise RuntimeError("Invalid source IDs after audit")
+        if not sec.get("body"):
+            raise RuntimeError("Empty section after audit")
+    for m in final.get("maps",[]):
+        if m.get("source_id") not in allowed:
+            raise RuntimeError("Invalid map source")
+    return final
+
 
 
 def main():
     now = datetime.now(timezone.utc)
     candidates = collect(now)
-    report = make_digest(candidates,now)
-    checked = audit_digest(report,candidates,now)
+    report, research_notes = make_digest(candidates,now)
+    checked = audit_digest(report,candidates,now,research_notes)
     publish(checked,candidates,now)
 
 if __name__ == "__main__":
