@@ -1,24 +1,46 @@
 name: Publish weekly intelligence digest
-# On-demand pilot: publish only substantiated dossiers, without artificial minimum count.
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '30 17 * * 0'
   push:
     branches: [main]
     paths:
+      - 'weekly.py'
+      - 'guardrails.py'
+      - 'sources.py'
+      - 'magazine.py'
+      - 'visuals.py'
+      - 'tests/**'
       - '.github/workflows/curate.yml'
-  schedule:
-    - cron: '30 17 * * 0'
 permissions:
-  contents: write
-  pages: write
-  id-token: write
+  contents: read
 concurrency:
   group: intelligence-pages
   cancel-in-progress: false
 jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Compile scripts
+        run: python -m compileall -q weekly.py sources.py guardrails.py magazine.py visuals.py
+      - name: Offline unit tests (no OpenAI API charges)
+        run: python -m unittest discover -s tests -v
   publish:
+    needs: checks
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -28,40 +50,48 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r requirements.txt
-      - name: Run unit tests
-        run: python -m unittest discover -s tests
       - name: Check API secret
-        id: api_key
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          if [ -n "$OPENAI_API_KEY" ]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::error::OPENAI_API_KEY missing; cannot write the journal"
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::error::OPENAI_API_KEY missing; publication cannot run"
             exit 1
           fi
-      - name: Research and write one weekly article
+      - name: Research, validate and render one weekly article
+        id: generate
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: gpt-4.1
         run: python weekly.py
-      - name: Save issue and archive in repository
+      - name: Commit validated edition only
+        if: steps.generate.outputs.published == 'true'
         run: |
           git config user.name "intelligence-feed-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add docs
           if ! git diff --cached --quiet; then
             git commit -m "Publish weekly geopolitical digest"
-            git fetch origin main
-            git rebase origin/main
-            git push origin HEAD:main
+            for attempt in 1 2 3; do
+              git fetch origin main
+              git rebase origin/main
+              if git push origin HEAD:main; then
+                break
+              fi
+              if [ "$attempt" = 3 ]; then
+                echo "::error::GitHub publication conflict after three attempts"
+                exit 1
+              fi
+              sleep 2
+            done
           fi
       - uses: actions/configure-pages@v5
+        if: steps.generate.outputs.published == 'true'
       - uses: actions/upload-pages-artifact@v4
+        if: steps.generate.outputs.published == 'true'
         with:
           path: docs
       - name: Deploy GitHub Pages
+        if: steps.generate.outputs.published == 'true'
         id: deployment
         uses: actions/deploy-pages@v4
