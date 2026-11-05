@@ -1,5 +1,5 @@
 name: Publish weekly intelligence digest
-# On-demand pilot: preserve factual citations across final editorial revisions.
+# On-demand pilot: publish only substantiated dossiers, without artificial minimum count.
 on:
   workflow_dispatch:
   push:
