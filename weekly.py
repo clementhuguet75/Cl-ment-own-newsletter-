@@ -4,9 +4,13 @@ import json
 import os
 import re
 from datetime import datetime, timezone
-from openai import OpenAI
+from openai import OpenAI, OpenAIError
 from sources import collect
 from magazine import publish
+from guardrails import (
+    RecoverableDigestError, inspect_report, assert_report,
+    compact_for_model, select_candidates,
+)
 
 # Strict output shape: prevents occasional malformed editorial JSON responses.
 DIGEST_SCHEMA = {
@@ -91,105 +95,149 @@ Format de sortie : JSON valide uniquement, sans markdown. Schéma :
 Ne pas sélectionner une seule analyse; FAIRE LA SYNTHESE de toutes les actualités matérielles pertinentes. Ignorer les publications de routine. Placer une référence par dossier, pas des références fabriquées. Les sources qui ne sont pas utiles n'ont pas besoin d'être citées.
 """
 
-def compact_candidates(candidates):
-    return [{"id":a["id"],"publisher":a["publisher"],"date":a["date"][:10],
-             "title":a["title"],"url":a["url"],"excerpt":a["excerpt"][:600]} for a in candidates]
+# Publication controls: at most one research + one fact check + two
+# structured attempts for each editorial stage (API retries are SDK bounded).
+MAX_STRUCTURED_ATTEMPTS = 2
+DRAFT_WORD_TARGET = 1300
 
 def web_research(candidates, now):
-    """Search the important facts BEFORE asking for long structured writing."""
-    prompt = """Réalise une recherche documentaire OSINT pour un digest géopolitique du jour.
-Lis la liste de publications récentes, hiérarchise 3 sujets importants et concrets, puis effectue des recherches web ciblées pour recouper les faits et détails techniques. Réponds EN NOTES FACTUELLES, pas en article, pas en JSON.
-Pour chaque sujet : date et lieu exacts, 5 à 8 faits sourcés (avec les id des articles de la liste), données physiques/quantitatives vérifiées (longueurs de pistes, types d'avion, lieux, distances, capacités, effectifs, etc.), portée opérationnelle et limites. Indique également le CONTEXTE MACRO PRÉEXISTANT (stratégie nationale, autres infrastructures comparables, voisins, rivalités), la chaîne causale « so what », et le contre-argument qui relativise l'importance de la news. Aucune invention. Ce qui n'est pas confirmé doit être marqué non confirmé. Sépare les nouveautés des faits anciens utilisés comme contexte.
-Ne mentionne que les numéros d'articles de la liste fournie. Si une information décisive manque, dis-le clairement. Ne produis PAS de phrases creuses. Maximum 1 800 mots de notes."""
+    """Gather precise OSINT research in short notes; writing is a separate call."""
+    prompt = """Réalise les recherches documentaires pour un digest géopolitique FRANÇAIS.
+Choisis TROIS sujets importants parmi les publications sourcées. Recherche sur le web et recoupe leurs faits précis, détails militaires/techniques, lieux, dates, distances, matériel et effectifs quand documentés. Fournis des notes FACTUELLES, pas un article. Pour chaque sujet : 5 à 8 faits et leurs références [id], une comparaison avec la situation antérieure, le mécanisme stratégique micro → macro, les limites de l'interprétation et 2 indicateurs observables. Précise ce qui n'est pas vérifié. N'attribue jamais une déclaration à une source qui ne la soutient pas. Max. 1 400 mots de notes; priorité à la précision, pas à la rhétorique."""
     response = OpenAI().responses.create(
         model=os.getenv("OPENAI_MODEL","gpt-4.1"),
         tools=[{"type":"web_search","search_context_size":"medium"}],
-        max_output_tokens=4800,
+        max_output_tokens=4200,
         input=[{"role":"system","content":prompt},
-               {"role":"user","content":"Date UTC "+now.date().isoformat()+"; candidats : "+
-                json.dumps(compact_candidates(candidates),ensure_ascii=False)}])
+               {"role":"user","content":"Date UTC : "+now.date().isoformat()+"\n"+
+                json.dumps(compact_for_model(candidates),ensure_ascii=False)}])
     print("Research usage:", response.usage)
     notes=(response.output_text or "").strip()
-    if len(notes)<300:
-        raise RuntimeError("Not enough grounded research notes for publication")
-    return notes[:18000]
-
-def structured_digest(instructions, user_text, output_limit=8000):
-    """Constrained output without web tools, avoiding web+schema token exhaustion."""
-    response = OpenAI().responses.create(
-        model=os.getenv("OPENAI_MODEL","gpt-4.1"),
-        text={"format":{"type":"json_schema","name":"geopolitical_digest","strict":True,"schema":DIGEST_SCHEMA}},
-        max_output_tokens=output_limit,
-        input=[{"role":"system","content":instructions},{"role":"user","content":user_text}])
-    print("Structured output usage:", response.usage)
+    if len(notes)<350:
+        raise RecoverableDigestError("Insufficient grounded research; not publishing")
     if response.status!="completed":
-        raise RuntimeError("Structured output was incomplete; previous issue preserved")
-    return json.loads(response.output_text)
+        # Incomplete notes may omit the source context needed for a safe digest.
+        raise RecoverableDigestError("Web research was incomplete; previous issue retained")
+    return notes[:15000]
+
+def structured_digest(instructions, user_text, candidates, stage):
+    """JSON schema + deterministic semantic validation + ONE bounded repair attempt."""
+    prompt=user_text
+    last_error="none"
+    for attempt in range(MAX_STRUCTURED_ATTEMPTS):
+        # 6200 is sufficient for a 1000-1500 word JSON digest; 7400 on repair.
+        limit=6200 if attempt==0 else 7400
+        response=OpenAI().responses.create(
+            model=os.getenv("OPENAI_MODEL","gpt-4.1"),
+            text={"format":{"type":"json_schema","name":"geopolitical_digest",
+                            "strict":True,"schema":DIGEST_SCHEMA}},
+            max_output_tokens=limit,
+            input=[{"role":"system","content":instructions},
+                   {"role":"user","content":prompt}])
+        print(stage,"attempt",attempt+1,"usage:",response.usage)
+        if response.status!="completed":
+            last_error="Model response incomplete (output length limit)"
+            prompt=(user_text+"\nRETRY: The first attempt ran out of tokens. "
+                    "Return ONLY 2-3 dossiers, 2 substantial paragraphs per dossier, "
+                    "750-1000 words TOTAL, complete JSON. Never leave an unfinished object.")
+            continue
+        try:
+            article=json.loads(response.output_text)
+        except (json.JSONDecodeError, TypeError) as exc:
+            last_error="Malformed JSON: "+str(exc)[:100]
+            prompt=(user_text+"\nRETRY: Output valid, complete JSON only. "
+                    "Maximum 1000 words, 2 dossiers and 2 paragraphs per dossier.")
+            continue
+        defects=inspect_report(article,candidates)
+        if not defects:
+            return article
+        last_error="; ".join(defects)[:700]
+        print("::warning::",stage,"output rejected for quality:",last_error)
+        prompt=(user_text[:18000]+"\nCORRECT THESE DEFECTS: "+last_error+
+                "\nExisting draft (repair, do not invent citations): "+
+                json.dumps(article,ensure_ascii=False)[:12000]+
+                "\nReturn a full JSON document, 2-3 dossiers, >= 400 and <= 1600 words. "
+                "Keep IDs only from the source index.")
+    raise RecoverableDigestError(stage+" not publishable after 2 attempts: "+last_error)
 
 def make_digest(candidates, now):
-    notes=web_research(candidates,now)
-    user_text=("Date : "+now.date().isoformat()+
-        "\nNOTES D'ENQUÊTE WEB, À UTILISER COMME SEUL FONDEMENT DES FAITS :\n"+notes+
-        "\nINDEX DES SOURCES ET ID AUTORISÉS :\n"+json.dumps(compact_candidates(candidates),ensure_ascii=False)+
-        "\nCompose exactement 3 dossiers, 3 paragraphes factuels de 90-120 mots chacun, un chapô, cinq phrases d'essentiel, 1-3 cartes SOURCÉES et 3 lectures. Maximum 1600 mots. Ne force aucun détail que les recherches n'étayent pas. Évite les généralités. Sortie JSON valide et COMPLÈTE.")
-    draft=structured_digest(EDITORIAL_RULES,user_text)
-    return draft,notes
+    selected=select_candidates(candidates)
+    notes=web_research(selected,now)
+    text=("Date: "+now.date().isoformat()+
+          "\nDOCUMENTED RESEARCH NOTES (NO UNSOURCED ASSERTIONS):\n"+notes+
+          "\nVALID ARTICLE IDs:\n"+json.dumps(compact_for_model(selected),ensure_ascii=False)+
+          "\nCompose 3 dossiers, 2-4 substantive paragraphs each, around "+
+          str(DRAFT_WORD_TARGET)+" words TOTAL. Explain both precise technical facts "
+          "and regional micro-to-macro strategic consequences and limitations. "
+          "Every dossier needs a valid source ID. Max 5 summary sentences, 3 maps, 3 further readings. "
+          "Return one complete JSON object.")
+    draft=structured_digest(EDITORIAL_RULES,text,selected,"draft")
+    return draft,notes,selected
 
-def audit_digest(digest, candidates, now, research_notes):
-    """Independently check claims, then revise in bounded, tool-free JSON."""
-    index=[{"id":x["id"],"title":x["title"],"publisher":x["publisher"],
-            "date":x["date"][:10],"url":x["url"]} for x in candidates]
+def audit_digest(digest,candidates,now,research_notes):
+    """Fact check critical assertions; never quietly restore unverified copy."""
     claims=json.dumps(digest,ensure_ascii=False)
     check=OpenAI().responses.create(
         model=os.getenv("OPENAI_MODEL","gpt-4.1"),
         tools=[{"type":"web_search","search_context_size":"medium"}],
-        max_output_tokens=2500,
+        max_output_tokens=2700,
         input=[
-            {"role":"system","content":"""Vérificateur factuel géopolitique. En utilisant la recherche web, contrôle les affirmations matérielles et temporelles de l'article : dates, élections, acteurs, longueur des pistes, types d'avions, usage réel vs possibilité théorique, chiffres et statut résolu ou actif. Réponds en NOTES DE CORRECTION COURTES, pas en JSON ni article. Si tu ne peux pas prouver un détail, indique précisément le passage à nuancer ou supprimer. N'ajoute pas d'événements non pertinents. Maximum 850 mots."""},
-            {"role":"user","content":"Date "+now.date().isoformat()+"\nBROUILLON : "+claims}
+            {"role":"system","content":"""Vérificateur factuel géopolitique : recoupe les affirmations vérifiables de cet article (dates, lieux, dimension d'une piste, appareils, armes, diplomatie, élections, trêves). Compare à des sources contemporaines via web_search. Distingue faits observés / déclarations / analyses / hypothèses ; signale événements déjà terminés, fausses chronologies, mauvaises unités et citations inadéquates. Réponds uniquement en notes concises de correction, pas en article ni JSON. Si aucune erreur, explique les vérifications les plus importantes. Maximum 700 mots."""},
+            {"role":"user","content":"Date "+now.date().isoformat()+"\nARTICLE À AUDITER:\n"+claims}
         ])
-    print("Fact check web usage:",check.usage)
+    print("Fact check usage:",check.usage)
     findings=(check.output_text or "").strip()
-    if len(findings)<80:
-        raise RuntimeError("Fact checking yielded insufficient evidence; previous edition preserved")
-    instructions="""Tu es le réviseur final d'un digest géopolitique français. Corrige le brouillon uniquement selon les constats d'audit vérifiés. Garde la profondeur technique et la structure JSON. Enlève toute information douteuse, remplace les adjectifs vagues par faits réellement justifiés, et distingue toujours passé et présent. Maximum 1600 mots pour l'article total. Pour chaque dossier, vérifie également si la conclusion stratégique est réellement déduite des faits et de la situation régionale et si elle évite de transformer une capacité hypothétique en fait acquis. Essaie de conserver les trois dossiers du brouillon lorsqu'ils sont justifiés, mais préfère supprimer entièrement un sujet si ses faits essentiels sont démentis. Tu peux raccourcir, pas inventer. Toutes les sources sont des id entiers existants. OBLIGATION ABSOLUE : chaque section conserve au moins un source_id du brouillon correspondant, tant que l'affirmation est conservée. Ne retourne JAMAIS une liste source_ids vide. Si tu supprimes un sujet non étayé, réécris le dossier à partir d'un sujet factuellement documenté et attribue des sources réelles de l'index. N'ajoute ni publication ni précision absente des notes d'enquête et de vérification."""
-    final=structured_digest(instructions, "INDEX DES ARTICLES : "+json.dumps(index,ensure_ascii=False)+
-              "\nNOTES INITIALES : "+research_notes[:12000]+
-              "\nNOTES D'AUDIT WEB : "+findings+
-              "\nBROUILLON À CORRIGER : "+claims)
-    allowed={x["id"] for x in candidates}
-    sections=final.get("sections",[])
-    if not sections or len(sections)>5:
-        raise RuntimeError("No defensible audited sections")
-    print("Accepted",len(sections),"fact-checked and sourced dossier(s)")
-    original_sections=digest.get("sections",[])
-    for position, sec in enumerate(sections):
-        valid_ids=[i for i in sec.get("source_ids",[]) if type(i) is int and i in allowed]
-        if not valid_ids:
-            # Never publish an unsupported revised section. Restore the whole original
-            # section, including its own relevant citation IDs, not bare links.
-            original=original_sections[position] if position < len(original_sections) else {}
-            original_ids=[i for i in original.get("source_ids",[]) if type(i) is int and i in allowed]
-            if not original_ids or not original.get("body"):
-                raise RuntimeError("Neither revision nor original has supported sources")
-            print("Reverting unsupported revision in section",position+1)
-            sections[position]=original
-        else:
-            sec["source_ids"]=valid_ids
-            if not sec.get("body"):
-                raise RuntimeError("Empty section after audit")
-    final["maps"]=[m for m in final.get("maps",[]) if type(m.get("source_id")) is int and m["source_id"] in allowed]
-    final["further_reading"]=[i for i in final.get("further_reading",[]) if type(i) is int and i in allowed]
-    return final
+    if check.status!="completed" or len(findings)<100:
+        raise RecoverableDigestError("Fact checking incomplete; previous edition retained")
+    instructions="""Tu es le réviseur final d'un journal géopolitique personnel. Applique seulement les corrections étayées par l'audit web. Élimine les erreurs factuelles et les inférences non démontrées; ne les réintroduis pas. Conserve 2 à 4 dossiers substantiels, 2-4 paragraphes par dossier, 850-1500 mots. Toute section doit avoir au moins un source_id DÉJÀ PRÉSENT dans le brouillon pour le sujet correspondant, sauf nouveau sujet vérifié avec un autre id authentique. Si l'audit invalide un dossier, supprime-le et approfondis uniquement les dossiers restants. Préserve les faits micro et le vrai mécanisme micro → macro, avec limites et contre-arguments. Donne toutes les références sous forme d'IDs du corpus uniquement. Retourne exclusivement le JSON complet conforme au schéma, pas de Markdown."""
+    original_index=json.dumps(compact_for_model(candidates),ensure_ascii=False)
+    revisions=("DATE "+now.date().isoformat()+
+        "\nSOURCES AUTORISÉES:\n"+original_index+
+        "\nCONSTAT DE L'AUDIT:\n"+findings+
+        "\nNOTES D'ENQUÊTE:\n"+research_notes[:11000]+
+        "\nBROUILLON À CORRIGER:\n"+claims)
+    result=structured_digest(instructions,revisions,candidates,"fact-checked revision")
+    assert_report(result,candidates)
+    return result
 
-
+def _github_result(published, message):
+    """Explicit output lets Actions SKIP deploy on recoverable editorial errors."""
+    if not published:
+        safe=message.replace("\n"," ")[:500]
+        print("::warning::Digest NOT published; previous issue untouched. "+safe)
+    else:
+        safe=message
+        print("Digest published:",safe)
+    output=os.getenv("GITHUB_OUTPUT")
+    if output:
+        with open(output,"a",encoding="utf-8") as f:
+            f.write("published="+("true" if published else "false")+"\n")
+    summary=os.getenv("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary,"a",encoding="utf-8") as f:
+            f.write("### Intelligence Feed\n"+
+                    ("**New edition ready.** " if published else "**No publication (previous edition kept).** ")+
+                    message.replace("\n"," ")[:700]+"\n")
 
 def main():
-    now = datetime.now(timezone.utc)
-    candidates = collect(now)
-    report, research_notes = make_digest(candidates,now)
-    checked = audit_digest(report,candidates,now,research_notes)
+    now=datetime.now(timezone.utc)
+    try:
+        try:
+            candidates=collect(now)
+        except RuntimeError as exc:
+            if "Insufficient recent articles" in str(exc):
+                raise RecoverableDigestError(str(exc)) from exc
+            raise
+        draft,research_notes,selected=make_digest(candidates,now)
+        checked=audit_digest(draft,selected,now,research_notes)
+        assert_report(checked,selected)
+    except (RecoverableDigestError,OpenAIError) as exc:
+        _github_result(False,str(exc))
+        return
+    # Only the validated final article can reach the publisher.
+    # A disk / git / deployment failure remains a real workflow error.
     publish(checked,candidates,now)
+    _github_result(True,now.date().isoformat())
 
-if __name__ == "__main__":
+if __name__=="__main__":
     main()
