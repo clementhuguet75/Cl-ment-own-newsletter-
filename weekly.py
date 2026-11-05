@@ -8,6 +8,46 @@ from openai import OpenAI
 from sources import collect
 from magazine import publish
 
+# Strict output shape: prevents occasional malformed editorial JSON responses.
+DIGEST_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "title": {"type": "string"},
+        "subtitle": {"type": "string"},
+        "lead": {"type": "string"},
+        "at_a_glance": {"type": "array", "items": {"type": "string"}},
+        "sections": {
+            "type": "array",
+            "items": {
+                "type": "object", "additionalProperties": False,
+                "properties": {
+                    "heading": {"type": "string"},
+                    "body": {"type": "array", "items": {"type": "string"}},
+                    "significance": {"type": "string"},
+                    "watch": {"type": "string"},
+                    "source_ids": {"type": "array", "items": {"type": "integer"}}
+                },
+                "required": ["heading", "body", "significance", "watch", "source_ids"]
+            }
+        },
+        "maps": {
+            "type": "array",
+            "items": {
+                "type": "object", "additionalProperties": False,
+                "properties": {
+                    "title": {"type": "string"},
+                    "why": {"type": "string"},
+                    "source_id": {"type": "integer"}
+                },
+                "required": ["title", "why", "source_id"]
+            }
+        },
+        "further_reading": {"type": "array", "items": {"type": "integer"}}
+    },
+    "required": ["title", "subtitle", "lead", "at_a_glance", "sections", "maps", "further_reading"]
+}
+
 EDITORIAL_RULES = """
 Tu es le rédacteur en chef d'un journal géopolitique personnel premium en FRANÇAIS.
 À partir de dizaines de liens d'analyses ISW, CSIS, CFR, RUSI et ECFR, tu dois RÉDIGER UN SEUL NOUVEL ARTICLE DE SYNTHESE, PAS une liste d'articles retenus. Tu peux utiliser web_search pour approfondir et recouper les faits.
@@ -49,6 +89,8 @@ def make_digest(candidates, now):
     response = OpenAI().responses.create(
         model=os.getenv("OPENAI_MODEL", "gpt-4.1"),
         tools=[{"type":"web_search","search_context_size":"medium"}],
+        text={"format":{"type":"json_schema","name":"geopolitical_digest","strict":True,"schema":DIGEST_SCHEMA}},
+        parallel_tool_calls=False,
         max_output_tokens=8600,
         input=[
             {"role":"system","content":EDITORIAL_RULES},
@@ -56,6 +98,8 @@ def make_digest(candidates, now):
              " publications des 7 derniers jours :\n"+json.dumps(compact,ensure_ascii=False)}
         ])
     print("Usage:", response.usage)
+    if response.status != "completed":
+        raise RuntimeError("Draft response incomplete: " + str(response.status))
     raw = (response.output_text or "").strip()
     if raw.startswith("~~~"):
         raw = re.sub(r"^~~~(?:json)?\s*|\s*~~~$", "", raw, flags=re.I)
@@ -94,6 +138,8 @@ Retourne uniquement le même objet JSON, conservant la structure et l'essentiel 
     resp = OpenAI().responses.create(
         model=os.getenv("OPENAI_MODEL", "gpt-4.1"),
         tools=[{"type":"web_search","search_context_size":"medium"}],
+        text={"format":{"type":"json_schema","name":"geopolitical_digest","strict":True,"schema":DIGEST_SCHEMA}},
+        parallel_tool_calls=False,
         max_output_tokens=7500,
         input=[
             {"role":"system","content":prompt},
@@ -102,6 +148,8 @@ Retourne uniquement le même objet JSON, conservant la structure et l'essentiel 
              "\nARTICLE A AUDITER : "+json.dumps(digest,ensure_ascii=False)}
         ])
     print("Fact check usage:",resp.usage)
+    if resp.status != "completed":
+        raise RuntimeError("Fact-check response incomplete: " + str(resp.status))
     raw=(resp.output_text or "").strip()
     try:
         audited=json.loads(raw)
