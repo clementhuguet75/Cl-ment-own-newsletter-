@@ -1,5 +1,5 @@
 name: Publish weekly intelligence digest
-# On-demand pilot: separated web research, structured editorial writing and verification.
+# On-demand pilot: preserve factual citations across final editorial revisions.
 on:
   workflow_dispatch:
   push:
