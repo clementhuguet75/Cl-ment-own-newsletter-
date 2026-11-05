@@ -145,15 +145,16 @@ def audit_digest(digest, candidates, now, research_notes):
     findings=(check.output_text or "").strip()
     if len(findings)<80:
         raise RuntimeError("Fact checking yielded insufficient evidence; previous edition preserved")
-    instructions="""Tu es le réviseur final d'un digest géopolitique français. Corrige le brouillon uniquement selon les constats d'audit vérifiés. Garde la profondeur technique et la structure JSON. Enlève toute information douteuse, remplace les adjectifs vagues par faits réellement justifiés, et distingue toujours passé et présent. Maximum 1600 mots pour l'article total. Tu peux raccourcir, pas inventer. Toutes les sources sont des id entiers existants. OBLIGATION ABSOLUE : chaque section conserve au moins un source_id du brouillon correspondant, tant que l'affirmation est conservée. Ne retourne JAMAIS une liste source_ids vide. Si tu supprimes un sujet non étayé, réécris le dossier à partir d'un sujet factuellement documenté et attribue des sources réelles de l'index. N'ajoute ni publication ni précision absente des notes d'enquête et de vérification."""
+    instructions="""Tu es le réviseur final d'un digest géopolitique français. Corrige le brouillon uniquement selon les constats d'audit vérifiés. Garde la profondeur technique et la structure JSON. Enlève toute information douteuse, remplace les adjectifs vagues par faits réellement justifiés, et distingue toujours passé et présent. Maximum 1600 mots pour l'article total. Essaie de conserver les trois dossiers du brouillon lorsqu'ils sont justifiés, mais préfère supprimer entièrement un sujet si ses faits essentiels sont démentis. Tu peux raccourcir, pas inventer. Toutes les sources sont des id entiers existants. OBLIGATION ABSOLUE : chaque section conserve au moins un source_id du brouillon correspondant, tant que l'affirmation est conservée. Ne retourne JAMAIS une liste source_ids vide. Si tu supprimes un sujet non étayé, réécris le dossier à partir d'un sujet factuellement documenté et attribue des sources réelles de l'index. N'ajoute ni publication ni précision absente des notes d'enquête et de vérification."""
     final=structured_digest(instructions, "INDEX DES ARTICLES : "+json.dumps(index,ensure_ascii=False)+
               "\nNOTES INITIALES : "+research_notes[:12000]+
               "\nNOTES D'AUDIT WEB : "+findings+
               "\nBROUILLON À CORRIGER : "+claims)
     allowed={x["id"] for x in candidates}
     sections=final.get("sections",[])
-    if len(sections)<3 or len(sections)>5:
-        raise RuntimeError("Incorrect number of audited sections")
+    if not sections or len(sections)>5:
+        raise RuntimeError("No defensible audited sections")
+    print("Accepted",len(sections),"fact-checked and sourced dossier(s)")
     original_sections=digest.get("sections",[])
     for position, sec in enumerate(sections):
         valid_ids=[i for i in sec.get("source_ids",[]) if type(i) is int and i in allowed]
