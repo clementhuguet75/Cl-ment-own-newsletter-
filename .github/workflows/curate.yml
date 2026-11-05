@@ -1,5 +1,5 @@
 name: Publish weekly intelligence digest
-# On-demand pilot: complete bounded detailed editorial output and deploy the issue.
+# On-demand pilot: separated web research, structured editorial writing and verification.
 on:
   workflow_dispatch:
   push:
