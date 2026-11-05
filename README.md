@@ -1,6 +1,6 @@
 # Intelligence Feed — Journal géopolitique personnel
 
-**Objectif : un seul grand article de synthèse hebdomadaire**, original et rédigé en français, construit à partir d'un grand nombre d'analyses géopolitiques (ISW, CSIS, RUSI, ECFR). Le résultat est distribué dans **Feeder** via RSS en contenu intégral, et disponible en HTML sur GitHub Pages.
+**Objectif : un seul grand article de synthèse hebdomadaire**, original et rédigé en français, construit à partir d'un grand nombre d'analyses géopolitiques (ISW, CSIS, CFR, RUSI et ECFR). Le résultat est distribué dans **Feeder** via RSS en contenu intégral, et disponible en HTML sur GitHub Pages.
 
 ## Fonctionnement
 
@@ -22,6 +22,18 @@ L'utilisateur veut la précision d'un rapport OSINT, pas les formules générale
 **Micro → Macro (« So what ? »)** : chaque sujet doit relier l'événement concret à une dynamique plus large, étayée par le contexte historique et géographique : quels objectifs existaient avant, quel mécanisme permet réellement à cet événement d'agir, quels acteurs y gagnent ou perdent, quelle différence par rapport à l'existant ? Mettre en regard une interprétation stratégique et une lecture qui en relativise la portée si les faits le justifient. Donner des éléments de comparaison concrets (ex. bases voisines, autres infrastructures, droits militaires, capacités effectivement déployées). Si l'effet est négligeable, le dire. Ne jamais transformer un scénario futur en fait acquis.
 
 **Style** : concret, pédagogique, sobre, sans expressions creuses (« rééquilibrage géostratégique », « nouvel échiquier », « nouvelle ère ») si elles ne sont pas étayées. Préférer **3–4 développements documentés** à 6 panoramas génériques. La recherche doit approfondir activement les sujets sélectionnés ; le corpus RSS initial ne garantit pas l'accès intégral aux publications.
+
+## Fiabilité et prévention des échecs (5 novembre 2026)
+
+- **Entrées bornées :** maximum 40 publications représentatives transmises à l'IA, titres et extraits tronqués à des tailles raisonnables, pour éviter un prompt énorme.
+- **Sorties bornées :** schéma JSON strict, modèle sollicité pour environ 1 300 mots, publication refusée hors de 500 à 2 050 mots, sans au moins deux dossiers substantiels ou sans références d'articles valides.
+- **Auto-réparation :** une deuxième tentative au maximum en cas de génération incomplète, JSON cassé ou défaut de structure/références. Pas de boucle infinie de requêtes payantes.
+- **Vérification séparée :** recherche web de faits et contrôle factuel avant la version finale ; aucune référence n'est ajoutée automatiquement pour masquer un dossier non sourcé.
+- **Échec maîtrisé :** en cas d'impossibilité de produire une édition fiable, le script termine proprement avec un avertissement et **ne remplace pas le digest existant**. Cette absence de publication est visible dans le résumé de l'exécution GitHub ; elle ne produit pas d'email d'échec pour un problème éditorial attendu. Une erreur réelle de compilation, configuration, écriture ou déploiement reste visible comme échec GitHub.
+- **Tests automatiques gratuits :** les changements de code exécutent compilation + tests unitaires *sans* appel à l'API OpenAI. Seules la programmation du dimanche et l'exécution manuelle génèrent une édition payante.
+- **Tests du 5 novembre :** 17 tests locaux simulés, dont réponses incomplètes, citations inexistantes, article trop long, conservation de l'édition précédente et publication valide, exécutés avec succès dans GitHub Actions.
+
+Une architecture résiliente réduit considérablement les erreurs attendues, mais ne peut garantir qu'une API ou GitHub Pages ne sera jamais indisponible. En cas de rapport refusé, le flux garde sa dernière édition et le prochain déclenchement prévu tentera une nouvelle génération.
 
 ## Sources
 
@@ -48,6 +60,6 @@ Le workflow s'arrête sans publier de fausse édition s'il manque des sources ou
 
 La qualité finale dépend des sources accessibles et de la capacité de recherche web ; les citations indiquent les publications correspondantes, mais les analyses IA ne doivent pas être considérées comme des faits automatiquement confirmés. Aucun article externe n'est recopié en totalité.
 
-**Déploiement de cette version : à valider sur la première exécution du workflow.**
+**Déploiement du 5 novembre validé.** Les nouvelles protections sont confirmées par les tests automatisés, pas encore par une exécution payante en production.
 
 Projet personnel non affilié aux éditeurs ou à Feeder.
