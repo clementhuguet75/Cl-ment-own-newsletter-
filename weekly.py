@@ -53,6 +53,8 @@ Tu es le rédacteur en chef d'un journal géopolitique personnel premium en FRAN
 À partir de dizaines de liens d'analyses ISW, CSIS, CFR, RUSI et ECFR, tu dois RÉDIGER UN SEUL NOUVEL ARTICLE DE SYNTHESE, PAS une liste d'articles retenus. Tu peux utiliser web_search pour approfondir et recouper les faits.
 Objectif : 10 à 15 minutes de lecture, avec 3 à 4 dossiers PLUS PROFONDS plutôt que 5 à 6 dossiers superficiels. Style d'un analyste OSINT pédagogique : précis, factuel, concret, sobre, accessible. Rédige d'abord les faits, puis explique leur portée. ÉVITE les formules abstraites et pompeuses : « recomposition des équilibres », « échiquier stratégique », « nouvelle donne », « bouleversement géopolitique », « dans un contexte de », « montée en puissance » sans faits concrets. Aucune phrase ne doit exister uniquement pour donner de la gravité au sujet.
 
+LONGUEUR CONTRÔLÉE : exactement 3 ou 4 dossiers, trois paragraphes de 90 à 130 mots par dossier (exceptionnellement quatre si les faits le justifient). Maximum 1 900 mots pour l'ensemble de l'article, en excluant le JSON. Chaque paragraphe doit contenir des informations vérifiables : aucun remplissage. Le JSON doit être compact et complet. N'allonge jamais artificiellement une section.
+
 PRIORITÉ ABSOLUE : LE DÉTAIL QUI FAIT COMPRENDRE LA NEWS. Pour chaque dossier :
 - QUOI / OÙ / QUAND / QUI : événement précis, date, lieu exact (pas seulement le pays), acteurs et institutions concernés.
 - QU'EST-CE QUI A ÉTÉ OBSERVÉ : chiffres avec unités, évolutions comparées, dimensions d'infrastructures, matériels ou types d'armes, portée/capacités techniques, volumes, géolocalisation et observations satellites lorsque disponibles et corroborés.
@@ -91,7 +93,7 @@ def make_digest(candidates, now):
         tools=[{"type":"web_search","search_context_size":"medium"}],
         text={"format":{"type":"json_schema","name":"geopolitical_digest","strict":True,"schema":DIGEST_SCHEMA}},
         parallel_tool_calls=False,
-        max_output_tokens=8600,
+        max_output_tokens=14500,
         input=[
             {"role":"system","content":EDITORIAL_RULES},
             {"role":"user","content":"Date UTC : "+now.date().isoformat()+"; corpus de "+str(len(compact))+
@@ -134,7 +136,7 @@ def audit_digest(digest, candidates, now):
                      "date":x["date"][:10],"url":x["url"]} for x in candidates]
     prompt = """Tu es le fact-checker de la revue Intelligence Feed. Tu dois réviser le BROUILLON géopolitique fourni. Vérifie activement, avec la recherche web, chaque dossier et ses faits MATÉRIELS (dimensions, portée, modèles d'avions ou d'armes, nombre de sites, chiffres et unités). Corrige les contradictions, distingue « utilisable en théorie » de « utilisé effectivement », et supprime les généralités sans contenu. Un paragraphe peut être réécrit pour ajouter une précision vérifiée — ne jamais inventer des chiffres pour remplir l'espace. Vérifie également les principales affirmations factuelles datées : la chronologie, le caractère temporaire ou résolu d'un incident, les dates d'ouverture d'installations militaires, le statut des élections, les personnes, les capacités militaires, et la correspondance avec les articles cités.
 Élimine ou nuance toute affirmation non corroborée. N'écris PAS au présent une restriction déjà levée. Ne présente PAS un événement de septembre ou octobre comme une nouveauté de novembre. Attention à la différence entre les preuves accessibles et les hypothèses d'analystes. Les sources du corpus sont des liens, parfois seulement un extrait; ne prétends pas avoir vérifié des détails que tu ne peux pas confirmer.
-Retourne uniquement le même objet JSON, conservant la structure et l'essentiel de la profondeur analytique : title, subtitle, lead, at_a_glance, sections (heading, body, significance, watch, source_ids), maps (title, why, source_id), further_reading. Chaque source_id doit appartenir à la liste. N'ajoute pas de fait nouveau sans source appropriée. Corrige toute erreur détectée sans embellir. Remplace les formules vagues par des détails sourcés quand ces données sont disponibles et vérifiées. Si une information technique manque, dis explicitement qu'elle n'est pas connue. Ne fabrique pas de précision."""
+Retourne uniquement le même objet JSON, en conservant 3 à 4 sections et au maximum 1 900 mots dans l'ensemble de l'article, avec la structure et l'essentiel de la profondeur analytique : title, subtitle, lead, at_a_glance, sections (heading, body, significance, watch, source_ids), maps (title, why, source_id), further_reading. Chaque source_id doit appartenir à la liste. N'ajoute pas de fait nouveau sans source appropriée. Corrige toute erreur détectée sans embellir. Remplace les formules vagues par des détails sourcés quand ces données sont disponibles et vérifiées. Si une information technique manque, dis explicitement qu'elle n'est pas connue. Ne fabrique pas de précision."""
     resp = OpenAI().responses.create(
         model=os.getenv("OPENAI_MODEL", "gpt-4.1"),
         tools=[{"type":"web_search","search_context_size":"medium"}],
