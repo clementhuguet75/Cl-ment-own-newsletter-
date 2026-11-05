@@ -145,7 +145,7 @@ def audit_digest(digest, candidates, now, research_notes):
     findings=(check.output_text or "").strip()
     if len(findings)<80:
         raise RuntimeError("Fact checking yielded insufficient evidence; previous edition preserved")
-    instructions="""Tu es le réviseur final d'un digest géopolitique français. Corrige le brouillon uniquement selon les constats d'audit vérifiés. Garde la profondeur technique et la structure JSON. Enlève toute information douteuse, remplace les adjectifs vagues par faits réellement justifiés, et distingue toujours passé et présent. Maximum 1600 mots pour l'article total. Tu peux raccourcir, pas inventer. Toutes les sources sont des id entiers existants. N'ajoute ni publication ni précision absente des notes d'enquête et de vérification."""
+    instructions="""Tu es le réviseur final d'un digest géopolitique français. Corrige le brouillon uniquement selon les constats d'audit vérifiés. Garde la profondeur technique et la structure JSON. Enlève toute information douteuse, remplace les adjectifs vagues par faits réellement justifiés, et distingue toujours passé et présent. Maximum 1600 mots pour l'article total. Tu peux raccourcir, pas inventer. Toutes les sources sont des id entiers existants. OBLIGATION ABSOLUE : chaque section conserve au moins un source_id du brouillon correspondant, tant que l'affirmation est conservée. Ne retourne JAMAIS une liste source_ids vide. Si tu supprimes un sujet non étayé, réécris le dossier à partir d'un sujet factuellement documenté et attribue des sources réelles de l'index. N'ajoute ni publication ni précision absente des notes d'enquête et de vérification."""
     final=structured_digest(instructions, "INDEX DES ARTICLES : "+json.dumps(index,ensure_ascii=False)+
               "\nNOTES INITIALES : "+research_notes[:12000]+
               "\nNOTES D'AUDIT WEB : "+findings+
@@ -154,15 +154,24 @@ def audit_digest(digest, candidates, now, research_notes):
     sections=final.get("sections",[])
     if len(sections)<3 or len(sections)>5:
         raise RuntimeError("Incorrect number of audited sections")
-    for sec in sections:
-        ids=sec.get("source_ids",[])
-        if not ids or any(i not in allowed for i in ids):
-            raise RuntimeError("Invalid source IDs after audit")
-        if not sec.get("body"):
-            raise RuntimeError("Empty section after audit")
-    for m in final.get("maps",[]):
-        if m.get("source_id") not in allowed:
-            raise RuntimeError("Invalid map source")
+    original_sections=digest.get("sections",[])
+    for position, sec in enumerate(sections):
+        valid_ids=[i for i in sec.get("source_ids",[]) if type(i) is int and i in allowed]
+        if not valid_ids:
+            # Never publish an unsupported revised section. Restore the whole original
+            # section, including its own relevant citation IDs, not bare links.
+            original=original_sections[position] if position < len(original_sections) else {}
+            original_ids=[i for i in original.get("source_ids",[]) if type(i) is int and i in allowed]
+            if not original_ids or not original.get("body"):
+                raise RuntimeError("Neither revision nor original has supported sources")
+            print("Reverting unsupported revision in section",position+1)
+            sections[position]=original
+        else:
+            sec["source_ids"]=valid_ids
+            if not sec.get("body"):
+                raise RuntimeError("Empty section after audit")
+    final["maps"]=[m for m in final.get("maps",[]) if type(m.get("source_id")) is int and m["source_id"] in allowed]
+    final["further_reading"]=[i for i in final.get("further_reading",[]) if type(i) is int and i in allowed]
     return final
 
 
