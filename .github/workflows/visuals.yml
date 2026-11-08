@@ -1,4 +1,5 @@
 name: Republish corrected intelligence journal (no API cost)
+# 2026-11-08: deploy the ISW ChatGPT weekly edition to Feeder
 on:
   workflow_dispatch:
   push:
