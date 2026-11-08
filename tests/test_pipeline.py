@@ -48,6 +48,7 @@ class TestPipeline(unittest.TestCase):
             output=Path(tmp)/"output"
             summary=Path(tmp)/"summary"
             with patch.dict("os.environ",{"GITHUB_OUTPUT":str(output),"GITHUB_STEP_SUMMARY":str(summary)}), \
+                 patch.object(weekly,"already_published",return_value=False), \
                  patch.object(weekly,"collect",return_value=CANDIDATES), \
                  patch.object(weekly,"make_digest",side_effect=RecoverableDigestError("Invalid result")), \
                  patch.object(weekly,"publish") as publisher:
@@ -61,6 +62,7 @@ class TestPipeline(unittest.TestCase):
             output=Path(tmp)/"output"
             source=sample()
             with patch.dict("os.environ",{"GITHUB_OUTPUT":str(output)}), \
+                 patch.object(weekly,"already_published",return_value=False), \
                  patch.object(weekly,"collect",return_value=CANDIDATES), \
                  patch.object(weekly,"make_digest",return_value=(source,"research",CANDIDATES)), \
                  patch.object(weekly,"audit_digest",return_value=source), \
@@ -86,7 +88,8 @@ class TestPipeline(unittest.TestCase):
 
     def test_real_publish_bug_remains_visible_as_failure(self):
         with patch.dict("os.environ",{"GITHUB_OUTPUT":""}), \
-             patch.object(weekly,"collect",return_value=CANDIDATES), \
+             patch.object(weekly,"already_published",return_value=False), \
+                 patch.object(weekly,"collect",return_value=CANDIDATES), \
              patch.object(weekly,"make_digest",return_value=(sample(),"research",CANDIDATES)), \
              patch.object(weekly,"audit_digest",return_value=sample()), \
              patch.object(weekly,"publish",side_effect=OSError("disk unavailable")):
