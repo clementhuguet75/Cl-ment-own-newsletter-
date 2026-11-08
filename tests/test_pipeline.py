@@ -69,6 +69,21 @@ class TestPipeline(unittest.TestCase):
             self.assertEqual(output.read_text(),"published=true\n")
             publisher.assert_called_once()
 
+    def test_existing_same_day_issue_is_not_overwritten(self):
+        from datetime import datetime, timezone
+        import magazine
+        today=datetime.now(timezone.utc).date().isoformat()
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/"editions.json"
+            path.write_text(json.dumps([{"date":today}]),encoding="utf-8")
+            with patch.object(magazine,"DOCS",Path(tmp)), \
+                 patch.dict("os.environ",{"GITHUB_OUTPUT":"","FORCE_REPUBLISH":"0"}), \
+                 patch.object(weekly,"collect") as collector, \
+                 patch.object(weekly,"publish") as publisher:
+                weekly.main()
+            collector.assert_not_called()
+            publisher.assert_not_called()
+
     def test_real_publish_bug_remains_visible_as_failure(self):
         with patch.dict("os.environ",{"GITHUB_OUTPUT":""}), \
              patch.object(weekly,"collect",return_value=CANDIDATES), \
