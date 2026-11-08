@@ -219,8 +219,22 @@ def _github_result(published, message):
                     ("**New edition ready.** " if published else "**No publication (previous edition kept).** ")+
                     message.replace("\n"," ")[:700]+"\n")
 
+def already_published(date):
+    """Idempotency: a late Sunday cron must never overwrite today's Feeder article."""
+    if os.getenv("FORCE_REPUBLISH")=="1":
+        return False
+    from magazine import DOCS
+    path=DOCS/"editions.json"
+    if not path.exists():
+        return False
+    entries=json.loads(path.read_text(encoding="utf-8"))
+    return any(entry.get("date")==date for entry in entries)
+
 def main():
     now=datetime.now(timezone.utc)
+    if already_published(now.date().isoformat()):
+        _github_result(False,"Edition already published today: keeping the existing RSS item.")
+        return
     try:
         try:
             candidates=collect(now)
